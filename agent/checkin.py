@@ -9,6 +9,7 @@ Based on actual UI analysis:
 Flow: Open WeCom -> 工作台 tab -> 打卡 icon -> click the big circle button -> verify result
 """
 
+import subprocess
 import time
 import random
 import logging
@@ -121,49 +122,56 @@ class CheckinAutomation:
                 pass
 
         finally:
-            # Go back to home screen
+            # Go back to home screen via ADB (always works)
             try:
-                d = self.dm.d
-                if d:
-                    d.press("home")
+                subprocess.run(
+                    ["adb", "shell", "input", "keyevent", "KEYCODE_HOME"],
+                    capture_output=True, timeout=5
+                )
             except Exception:
                 pass
 
         return result
 
+    def _is_wecom_foreground(self) -> bool:
+        """Check if WeCom is the foreground app using ADB."""
+        try:
+            result = subprocess.run(
+                ["adb", "shell", "dumpsys", "window", "displays"],
+                capture_output=True, text=True, timeout=5
+            )
+            return WECOM_PACKAGE in result.stdout
+        except Exception:
+            return False
+
     def _open_wecom(self, d) -> bool:
-        """Open Enterprise WeChat app with retry and ADB fallback."""
-        import subprocess
-
+        """Open Enterprise WeChat using ADB am start (most reliable)."""
         for attempt in range(3):
-            try:
-                logger.info(f"Opening WeCom (attempt {attempt + 1})")
+            logger.info(f"Opening WeCom (attempt {attempt + 1})")
 
-                # Attempt 1 & 2: use uiautomator2
-                if attempt < 2:
-                    d.app_start(WECOM_PACKAGE, stop=(attempt == 1))
-                else:
-                    # Attempt 3: ADB am start as fallback
-                    subprocess.run(
-                        ["adb", "shell", "am", "start", "-n",
-                         f"{WECOM_PACKAGE}/com.tencent.wework.launch.LaunchSplashActivity"],
-                        capture_output=True, timeout=10
-                    )
+            # Force stop on retry
+            if attempt > 0:
+                subprocess.run(
+                    ["adb", "shell", "am", "force-stop", WECOM_PACKAGE],
+                    capture_output=True, timeout=5
+                )
+                time.sleep(1)
 
-                # Wait for app to appear
-                for _ in range(10):
-                    if d.app_current().get("package") == WECOM_PACKAGE:
-                        logger.info("WeCom opened successfully")
-                        return True
-                    time.sleep(0.5)
+            # Launch via ADB - doesn't depend on u2
+            subprocess.run(
+                ["adb", "shell", "am", "start",
+                 f"{WECOM_PACKAGE}/com.tencent.wework.launch.LaunchSplashActivity"],
+                capture_output=True, timeout=10
+            )
 
-            except Exception as e:
-                logger.warning(f"Open WeCom attempt {attempt + 1} failed: {e}")
-                # Reconnect u2 before retry
-                if attempt < 2:
-                    self.dm.ensure_u2()
-                    d = self.dm.d
-                    time.sleep(1)
+            # Wait for app to be foreground
+            for _ in range(10):
+                time.sleep(0.5)
+                if self._is_wecom_foreground():
+                    logger.info("WeCom opened successfully")
+                    return True
+
+            logger.warning(f"WeCom not in foreground after attempt {attempt + 1}")
 
         logger.error("Open WeCom failed after all attempts")
         return False
