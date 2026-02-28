@@ -28,25 +28,18 @@ class CheckinAutomation:
         }
 
         try:
-            # Step 1: Wake screen — must be ON before anything else
+            # Step 1: Wake screen
             logger.info("[1/7] 唤醒屏幕")
-            self.dm.wake_screen()
-            if not self.dm.is_screen_on():
-                logger.warning("[1/7] 屏幕仍灭, 强制唤醒")
-                subprocess.run(["adb", "shell", "input", "keyevent", "26"], capture_output=True, timeout=5)
-                time.sleep(1)
-                subprocess.run(["adb", "shell", "input", "keyevent", "82"], capture_output=True, timeout=5)
-                time.sleep(1)
-            logger.info(f"[1/7] 屏幕状态: {'亮' if self.dm.is_screen_on() else '灭'}")
+            self._ensure_screen_on()
             self._random_sleep(1.0, 2.0)
 
             # Step 2: Connect u2
             logger.info("[2/7] 连接 uiautomator2")
-            for u2_attempt in range(3):
+            for attempt in range(3):
                 if self.dm.ensure_u2():
-                    logger.info(f"[2/7] u2 连接成功 (第{u2_attempt + 1}次)")
+                    logger.info(f"[2/7] u2 连接成功 (第{attempt + 1}次)")
                     break
-                logger.warning(f"[2/7] u2 连接失败 (第{u2_attempt + 1}次), 重试...")
+                logger.warning(f"[2/7] u2 连接失败 (第{attempt + 1}次), 重试...")
                 time.sleep(2)
             else:
                 result["message"] = "uiautomator2 连接失败"
@@ -125,7 +118,7 @@ class CheckinAutomation:
         finally:
             try:
                 subprocess.run(
-                    ["adb", "shell", "input", "keyevent", "KEYCODE_HOME"],
+                    ["adb", "shell", "input", "keyevent", "3"],
                     capture_output=True, timeout=5
                 )
                 logger.info("已返回桌面")
@@ -134,102 +127,116 @@ class CheckinAutomation:
 
         return result
 
-    # --- Internal steps ---
+    # --- Screen ---
 
-    def _is_wecom_foreground(self) -> bool:
+    def _ensure_screen_on(self):
+        """Wake screen with multi-method fallback (MIUI compatible)."""
+        for attempt in range(3):
+            if self._is_screen_on():
+                logger.info(f"  屏幕已亮")
+                return
+
+            logger.info(f"  唤醒屏幕 (第{attempt + 1}次)")
+            if attempt == 0:
+                # KEYCODE_WAKEUP (224) - 幂等，不会反向关屏
+                subprocess.run(["adb", "shell", "input", "keyevent", "224"],
+                               capture_output=True, timeout=5)
+            elif attempt == 1:
+                # KEYCODE_HOME (3) - 小米设备上 HOME 可以唤醒屏幕
+                subprocess.run(["adb", "shell", "input", "keyevent", "3"],
+                               capture_output=True, timeout=5)
+            else:
+                # KEYCODE_POWER (26) - 最后手段
+                subprocess.run(["adb", "shell", "input", "keyevent", "26"],
+                               capture_output=True, timeout=5)
+            time.sleep(1)
+
+            # 滑动解锁（无密码锁屏）
+            subprocess.run(
+                ["adb", "shell", "input", "swipe", "500", "1800", "500", "800", "300"],
+                capture_output=True, timeout=5
+            )
+            time.sleep(0.5)
+
+        logger.info(f"  屏幕最终状态: {'亮' if self._is_screen_on() else '灭'}")
+
+    def _is_screen_on(self) -> bool:
+        """Check screen state via mWakefulness (most reliable)."""
         try:
             result = subprocess.run(
-                ["adb", "shell", "dumpsys", "window", "displays"],
+                ["adb", "shell", "dumpsys", "power"],
                 capture_output=True, text=True, timeout=5
             )
-            return WECOM_PACKAGE in result.stdout
+            for line in result.stdout.split("\n"):
+                if "mWakefulness=" in line:
+                    awake = "Awake" in line
+                    return awake
+                if "Display Power: state=" in line:
+                    return "ON" in line
+            return False
         except Exception:
             return False
 
-    def _resolve_launch_activity(self) -> str:
-        """Query the correct launch activity for WeCom."""
-        # Method 1: resolve-activity
+    # --- App launch ---
+
+    def _get_foreground_package(self) -> str:
+        """Get foreground app package name (industry standard method)."""
         try:
             result = subprocess.run(
-                ["adb", "shell", "cmd", "package", "resolve-activity",
-                 "--brief", WECOM_PACKAGE],
+                ["adb", "shell", "dumpsys", "activity", "activities"],
                 capture_output=True, text=True, timeout=5
             )
-            logger.info(f"  resolve-activity 输出: {result.stdout.strip()}")
-            for line in result.stdout.strip().split("\n"):
-                line = line.strip()
-                if "/" in line and WECOM_PACKAGE in line:
-                    logger.info(f"  解析到启动 Activity: {line}")
-                    return line
-        except Exception as e:
-            logger.warning(f"  resolve-activity 失败: {e}")
-
-        # Method 2: dumpsys package
-        try:
-            result = subprocess.run(
-                ["adb", "shell", "dumpsys", "package", WECOM_PACKAGE],
-                capture_output=True, text=True, timeout=10
-            )
-            in_launcher = False
             for line in result.stdout.split("\n"):
-                if "android.intent.action.MAIN" in line:
-                    in_launcher = True
-                if in_launcher and "android.intent.category.LAUNCHER" in line:
-                    in_launcher = True
-                if in_launcher and (WECOM_PACKAGE + "/") in line:
-                    activity = line.strip().split()[-1]
-                    logger.info(f"  从 dumpsys 解析到 Activity: {activity}")
-                    return activity
-                if in_launcher and line.strip() == "":
-                    in_launcher = False
-        except Exception as e:
-            logger.warning(f"  dumpsys 解析失败: {e}")
-
-        logger.warning("  未能解析启动 Activity")
-        return ""
+                if "mResumedActivity" in line:
+                    # Format: mResumedActivity: ActivityRecord{...com.tencent.wework/...}
+                    if WECOM_PACKAGE in line:
+                        return WECOM_PACKAGE
+                    # Extract package name
+                    for part in line.split():
+                        if "/" in part:
+                            return part.split("/")[0]
+            return ""
+        except Exception:
+            return ""
 
     def _open_wecom(self, d) -> bool:
-        # 先查出正确的 launch activity
-        activity = self._resolve_launch_activity()
-
+        """Open WeCom using u2 API (internally uses monkey, the industry standard)."""
         for attempt in range(3):
             logger.info(f"  启动企业微信 (第{attempt + 1}次)")
 
             if attempt > 0:
-                logger.info("  force-stop 企业微信后重试")
-                subprocess.run(
-                    ["adb", "shell", "am", "force-stop", WECOM_PACKAGE],
-                    capture_output=True, timeout=5
-                )
+                logger.info("  force-stop 后重试")
+                d.app_stop(WECOM_PACKAGE)
                 time.sleep(1)
 
-            if activity:
-                # 标准做法: am start -n package/activity
-                result = subprocess.run(
-                    ["adb", "shell", "am", "start", "-n", activity],
-                    capture_output=True, text=True, timeout=10
-                )
-                logger.info(f"  am start 输出: {result.stdout.strip()}")
-            else:
-                # Fallback: monkey
-                logger.info("  未找到 Activity, 使用 monkey 启动")
-                subprocess.run(
-                    ["adb", "shell", "monkey", "-p", WECOM_PACKAGE,
-                     "-c", "android.intent.category.LAUNCHER", "1"],
-                    capture_output=True, timeout=10
-                )
+            # u2 app_start 内部用 monkey 启动，是行业标准做法
+            try:
+                d.app_start(WECOM_PACKAGE, stop=(attempt == 2))
+            except Exception as e:
+                logger.warning(f"  app_start 异常: {e}")
+                continue
 
-            for i in range(10):
-                time.sleep(0.5)
-                if self._is_wecom_foreground():
-                    return True
-            logger.warning(f"  等待5秒后企业微信仍未在前台")
+            # u2 内置的 app_wait，等待 app 进入前台
+            logger.info("  等待企业微信进入前台...")
+            pid = d.app_wait(WECOM_PACKAGE, front=True, timeout=8)
+            if pid:
+                logger.info(f"  企业微信已在前台 (pid={pid})")
+                return True
+
+            # 兜底: ADB 检查
+            fg = self._get_foreground_package()
+            logger.info(f"  当前前台 app: {fg}")
+            if fg == WECOM_PACKAGE:
+                return True
+
+            logger.warning(f"  第{attempt + 1}次启动后企业微信未在前台")
 
         return False
 
+    # --- Navigation ---
+
     def _go_to_workbench(self, d) -> bool:
         try:
-            # 尝试 text="工作台"
             logger.info("  查找 text='工作台'")
             tab = d(text="工作台")
             if tab.exists(timeout=5):
@@ -238,7 +245,6 @@ class CheckinAutomation:
                 self._random_sleep(0.5, 1.0)
                 return True
 
-            # 尝试 description="工作台"
             logger.info("  查找 description='工作台'")
             tab = d(description="工作台")
             if tab.exists(timeout=3):
@@ -301,6 +307,8 @@ class CheckinAutomation:
             logger.error(f"  等待打卡页面异常: {e}")
             return False
 
+    # --- Click checkin button ---
+
     def _click_checkin_button(self, d, checkin_type: str) -> dict:
         result = {"success": False, "message": "", "actual_type": checkin_type}
 
@@ -321,7 +329,6 @@ class CheckinAutomation:
                                 all_button_texts["下班"] +
                                 all_button_texts["any"])
 
-            # 按文本查找
             for text in button_texts:
                 logger.info(f"  查找按钮: '{text}'")
                 btn = d(textContains=text)
@@ -362,6 +369,8 @@ class CheckinAutomation:
             logger.error(f"  {result['message']}")
             return result
 
+    # --- Verify ---
+
     def _verify_checkin_result(self, d) -> dict:
         result = {"success": False, "message": ""}
 
@@ -380,7 +389,6 @@ class CheckinAutomation:
                     logger.info(f"  {result['message']}")
                     return result
 
-            # 检查页面状态
             logger.info("  未找到明确成功标志, 检查页面状态")
             if d(textContains="上班").exists(timeout=1) or d(textContains="下班").exists(timeout=1):
                 if d(textContains=":").exists(timeout=1):
