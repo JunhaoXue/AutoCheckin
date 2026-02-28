@@ -1,12 +1,6 @@
 """Core check-in automation logic for Enterprise WeChat (企业微信).
 
-Based on actual UI analysis:
-- 工作台 page: "内部管理" section has "打卡" entry
-- 打卡 page: Large circle button in center ("上班打卡"/"下班打卡" + time)
-- Shows "你已在打卡范围内" when location is valid
-- Schedule: 上班 09:00 - 下班 18:00
-
-Flow: Open WeCom -> 工作台 tab -> 打卡 icon -> click the big circle button -> verify result
+Flow: Wake screen -> Open WeCom -> 工作台 tab -> 打卡 icon -> click button -> verify
 """
 
 import subprocess
@@ -17,7 +11,6 @@ from datetime import datetime
 
 logger = logging.getLogger("agent.checkin")
 
-# Package name for Enterprise WeChat
 WECOM_PACKAGE = "com.tencent.wework"
 
 
@@ -26,15 +19,6 @@ class CheckinAutomation:
         self.dm = device_manager
 
     def perform_checkin(self, checkin_type: str = "auto") -> dict:
-        """
-        Execute the full check-in flow.
-
-        Args:
-            checkin_type: "上班", "下班", or "auto" (decide based on current time)
-
-        Returns:
-            dict with keys: success, checkin_type, checkin_time, message, screenshot_b64
-        """
         result = {
             "success": False,
             "checkin_type": checkin_type,
@@ -44,77 +28,89 @@ class CheckinAutomation:
         }
 
         try:
-            # Step 1: Wake screen first (ADB works even without u2)
-            logger.info("Step 1: Wake screen")
+            # Step 1: Wake screen
+            logger.info("[1/7] 唤醒屏幕")
             self.dm.wake_screen()
+            screen_on = self.dm.is_screen_on()
+            logger.info(f"[1/7] 屏幕状态: {'亮' if screen_on else '灭'}")
             self._random_sleep(1.0, 2.0)
 
-            # Ensure u2 is connected (retry up to 3 times)
+            # Step 2: Connect u2
+            logger.info("[2/7] 连接 uiautomator2")
             for u2_attempt in range(3):
                 if self.dm.ensure_u2():
+                    logger.info(f"[2/7] u2 连接成功 (第{u2_attempt + 1}次)")
                     break
-                logger.warning(f"u2 connect attempt {u2_attempt + 1} failed, retrying...")
+                logger.warning(f"[2/7] u2 连接失败 (第{u2_attempt + 1}次), 重试...")
                 time.sleep(2)
             else:
                 result["message"] = "uiautomator2 连接失败"
+                logger.error(f"[2/7] {result['message']}")
                 return result
 
             d = self.dm.d
 
-            # Step 2: Open WeCom app
-            logger.info("Step 2: Open WeCom")
+            # Step 3: Open WeCom
+            logger.info("[3/7] 打开企业微信")
             if not self._open_wecom(d):
                 result["message"] = "打开企业微信失败"
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[3/7] {result['message']}")
                 return result
+            logger.info("[3/7] 企业微信已打开")
             self._random_sleep(1.5, 2.5)
 
-            # Step 3: Navigate to 工作台 tab
-            logger.info("Step 3: Navigate to 工作台")
+            # Step 4: Navigate to 工作台
+            logger.info("[4/7] 点击工作台 Tab")
             if not self._go_to_workbench(d):
                 result["message"] = "无法切换到工作台"
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[4/7] {result['message']}")
                 return result
+            logger.info("[4/7] 已进入工作台")
             self._random_sleep(1.0, 2.0)
 
-            # Step 4: Find and click 打卡 entry
-            logger.info("Step 4: Click 打卡 entry")
+            # Step 5: Click 打卡 entry
+            logger.info("[5/7] 查找并点击打卡入口")
             if not self._click_checkin_entry(d):
                 result["message"] = "未找到打卡入口"
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[5/7] {result['message']}")
                 return result
+            logger.info("[5/7] 已点击打卡入口, 等待页面加载")
             self._random_sleep(2.0, 3.0)
 
-            # Step 5: Wait for checkin page to load, check if in range
-            logger.info("Step 5: Wait for checkin page")
+            # Step 6: Wait for page + click button
+            logger.info("[6/7] 等待打卡页面加载")
             if not self._wait_for_checkin_page(d):
                 result["message"] = "打卡页面加载失败"
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[6/7] {result['message']}")
                 return result
             self._random_sleep(0.5, 1.0)
 
-            # Step 6: Click the big check-in button
-            logger.info("Step 6: Click check-in button")
+            logger.info(f"[6/7] 查找打卡按钮 (类型: {checkin_type})")
             click_result = self._click_checkin_button(d, checkin_type)
             if not click_result["success"]:
                 result["message"] = click_result["message"]
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[6/7] {result['message']}")
                 return result
             result["checkin_type"] = click_result.get("actual_type", checkin_type)
+            logger.info(f"[6/7] {click_result['message']}")
             self._random_sleep(2.0, 3.0)
 
-            # Step 7: Verify result
-            logger.info("Step 7: Verify result")
+            # Step 7: Verify
+            logger.info("[7/7] 验证打卡结果")
             verify = self._verify_checkin_result(d)
             result["success"] = verify["success"]
             result["message"] = verify["message"]
             result["checkin_time"] = datetime.now().strftime("%H:%M:%S")
             result["screenshot_b64"] = self.dm.take_screenshot_b64()
-
-            logger.info(f"Check-in result: {result['success']} - {result['message']}")
+            logger.info(f"[7/7] 结果: {'成功' if result['success'] else '失败'} - {result['message']}")
 
         except Exception as e:
-            logger.error(f"Check-in error: {e}", exc_info=True)
+            logger.error(f"打卡异常: {e}", exc_info=True)
             result["message"] = f"异常: {str(e)}"
             try:
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
@@ -122,19 +118,20 @@ class CheckinAutomation:
                 pass
 
         finally:
-            # Go back to home screen via ADB (always works)
             try:
                 subprocess.run(
                     ["adb", "shell", "input", "keyevent", "KEYCODE_HOME"],
                     capture_output=True, timeout=5
                 )
+                logger.info("已返回桌面")
             except Exception:
                 pass
 
         return result
 
+    # --- Internal steps ---
+
     def _is_wecom_foreground(self) -> bool:
-        """Check if WeCom is the foreground app using ADB."""
         try:
             result = subprocess.run(
                 ["adb", "shell", "dumpsys", "window", "displays"],
@@ -145,178 +142,157 @@ class CheckinAutomation:
             return False
 
     def _open_wecom(self, d) -> bool:
-        """Open Enterprise WeChat using ADB am start (most reliable)."""
         for attempt in range(3):
-            logger.info(f"Opening WeCom (attempt {attempt + 1})")
+            logger.info(f"  ADB am start 启动企业微信 (第{attempt + 1}次)")
 
-            # Force stop on retry
             if attempt > 0:
+                logger.info("  force-stop 企业微信后重试")
                 subprocess.run(
                     ["adb", "shell", "am", "force-stop", WECOM_PACKAGE],
                     capture_output=True, timeout=5
                 )
                 time.sleep(1)
 
-            # Launch via ADB - doesn't depend on u2
-            subprocess.run(
+            result = subprocess.run(
                 ["adb", "shell", "am", "start",
                  f"{WECOM_PACKAGE}/com.tencent.wework.launch.LaunchSplashActivity"],
-                capture_output=True, timeout=10
+                capture_output=True, text=True, timeout=10
             )
+            logger.info(f"  am start 输出: {result.stdout.strip()}")
 
-            # Wait for app to be foreground
-            for _ in range(10):
+            for i in range(10):
                 time.sleep(0.5)
                 if self._is_wecom_foreground():
-                    logger.info("WeCom opened successfully")
                     return True
+            logger.warning(f"  等待5秒后企业微信仍未在前台")
 
-            logger.warning(f"WeCom not in foreground after attempt {attempt + 1}")
-
-        logger.error("Open WeCom failed after all attempts")
         return False
 
     def _go_to_workbench(self, d) -> bool:
-        """Navigate to 工作台 tab at bottom of WeCom."""
         try:
-            # Look for 工作台 tab at bottom
+            # 尝试 text="工作台"
+            logger.info("  查找 text='工作台'")
             tab = d(text="工作台")
             if tab.exists(timeout=5):
+                logger.info("  找到 '工作台', 点击")
                 tab.click()
                 self._random_sleep(0.5, 1.0)
                 return True
 
-            # Try alternative: look by description
+            # 尝试 description="工作台"
+            logger.info("  查找 description='工作台'")
             tab = d(description="工作台")
             if tab.exists(timeout=3):
+                logger.info("  找到 '工作台'(description), 点击")
                 tab.click()
                 self._random_sleep(0.5, 1.0)
                 return True
 
-            logger.warning("工作台 tab not found")
+            logger.warning("  未找到工作台 Tab")
             return False
         except Exception as e:
-            logger.error(f"Navigate to 工作台 failed: {e}")
+            logger.error(f"  工作台导航异常: {e}")
             return False
 
     def _click_checkin_entry(self, d) -> bool:
-        """Find and click the 打卡 entry in 工作台."""
         try:
-            # Scroll down to find 打卡 in case it's not visible
             for attempt in range(3):
-                # Look for 打卡 text
+                logger.info(f"  查找打卡入口 (第{attempt + 1}次)")
+
                 checkin = d(text="打卡")
                 if checkin.exists(timeout=3):
+                    logger.info("  找到 text='打卡', 点击")
                     checkin.click()
                     return True
 
-                # Try with textContains
                 checkin = d(textContains="打卡")
                 if checkin.exists(timeout=2):
+                    logger.info("  找到 textContains='打卡', 点击")
                     checkin.click()
                     return True
 
-                # Scroll down to find it
                 if attempt < 2:
+                    logger.info("  未找到, 向上滑动")
                     d.swipe_ext("up", scale=0.3)
                     self._random_sleep(0.5, 1.0)
 
-            logger.warning("打卡 entry not found after scrolling")
+            logger.warning("  滑动3次后仍未找到打卡入口")
             return False
         except Exception as e:
-            logger.error(f"Click 打卡 entry failed: {e}")
+            logger.error(f"  点击打卡入口异常: {e}")
             return False
 
     def _wait_for_checkin_page(self, d) -> bool:
-        """Wait for the check-in page to fully load."""
         try:
-            # Wait for indicators that the checkin page is loaded
-            # Look for "上下班打卡" tab header or the check-in button
             indicators = [
-                "上下班打卡",
-                "外出打卡",
-                "打卡范围",
-                "上班打卡",
-                "下班打卡",
-                "迟到打卡",
-                "早退打卡",
-                "加班下班",
-                "更新打卡",
-                "已打卡",
+                "上下班打卡", "外出打卡", "打卡范围",
+                "上班打卡", "下班打卡", "迟到打卡",
+                "早退打卡", "加班下班", "更新打卡", "已打卡",
             ]
-            for _ in range(15):  # Wait up to 15 seconds
+            for i in range(15):
                 for text in indicators:
                     if d(textContains=text).exists(timeout=0.5):
-                        logger.info(f"Checkin page loaded (found: {text})")
+                        logger.info(f"  打卡页面已加载 (检测到: '{text}')")
                         return True
                 time.sleep(0.5)
 
-            logger.warning("Checkin page didn't load in time")
+            logger.warning("  等待15秒后打卡页面仍未加载")
             return False
         except Exception as e:
-            logger.error(f"Wait for checkin page failed: {e}")
+            logger.error(f"  等待打卡页面异常: {e}")
             return False
 
     def _click_checkin_button(self, d, checkin_type: str) -> dict:
-        """Click the big circular check-in button.
-
-        The button shows text like "上班打卡" or "下班打卡" with time underneath.
-        """
         result = {"success": False, "message": "", "actual_type": checkin_type}
 
         try:
-            # All known button texts in WeCom check-in page:
-            # 上班打卡 - normal morning check-in
-            # 下班打卡 - normal evening check-out
-            # 迟到打卡 - late morning check-in
-            # 早退打卡 - early leave check-out
-            # 加班下班 - overtime clock-out
-            # 更新打卡 - update existing record
             all_button_texts = {
                 "上班": ["上班打卡", "迟到打卡"],
                 "下班": ["下班打卡", "加班下班", "早退打卡"],
                 "any":  ["更新打卡"],
             }
 
-            # Build search list based on checkin_type
             button_texts = []
             if checkin_type == "上班":
                 button_texts = all_button_texts["上班"] + all_button_texts["any"]
             elif checkin_type == "下班":
                 button_texts = all_button_texts["下班"] + all_button_texts["any"]
-            else:  # auto
+            else:
                 button_texts = (all_button_texts["上班"] +
                                 all_button_texts["下班"] +
                                 all_button_texts["any"])
 
+            # 按文本查找
             for text in button_texts:
+                logger.info(f"  查找按钮: '{text}'")
                 btn = d(textContains=text)
-                if btn.exists(timeout=3):
+                if btn.exists(timeout=2):
                     if any(k in text for k in ["上班", "迟到"]):
                         result["actual_type"] = "上班"
                     else:
                         result["actual_type"] = "下班"
-                    logger.info(f"Found button: {text}")
+                    logger.info(f"  找到按钮 '{text}', 点击")
                     btn.click()
                     result["success"] = True
                     result["message"] = f"已点击{text}按钮"
                     return result
 
-            # Fallback: try to find any clickable element with 打卡 or 下班 text
+            # Fallback: 含关键词的可点击元素
             for keyword in ["打卡", "下班", "上班"]:
+                logger.info(f"  Fallback: 查找含 '{keyword}' 的可点击元素")
                 btn = d(textContains=keyword, clickable=True)
                 if btn.exists(timeout=2):
+                    logger.info(f"  找到含 '{keyword}' 的元素, 点击")
                     btn.click()
                     result["success"] = True
                     result["message"] = f"已点击含'{keyword}'的按钮"
                     return result
 
-            # Last resort: look for the large circle in center of screen
-            # The check-in button is typically a large circle in the center-bottom area
+            # Last resort: 坐标点击
             width, height = d.window_size()
             center_x = width // 2
-            center_y = int(height * 0.65)  # Button is roughly at 65% height
-            logger.info(f"Clicking center button at ({center_x}, {center_y})")
+            center_y = int(height * 0.65)
+            logger.info(f"  所有按钮均未找到, 坐标点击 ({center_x}, {center_y})")
             d.click(center_x, center_y)
             result["success"] = True
             result["message"] = "已点击打卡区域(坐标)"
@@ -324,54 +300,46 @@ class CheckinAutomation:
 
         except Exception as e:
             result["message"] = f"点击打卡按钮失败: {e}"
-            logger.error(result["message"])
+            logger.error(f"  {result['message']}")
             return result
 
     def _verify_checkin_result(self, d) -> dict:
-        """Verify if check-in was successful after clicking the button."""
         result = {"success": False, "message": ""}
 
         try:
-            # After clicking, the page may show a success toast or update the status
-            # Common success indicators:
             success_indicators = [
-                "打卡成功",
-                "已打卡",
-                "更新打卡",
-                "打卡时间",
+                "打卡成功", "已打卡", "更新打卡", "打卡时间",
             ]
 
-            # Wait a moment for result to appear
             time.sleep(1.5)
 
             for text in success_indicators:
-                if d(textContains=text).exists(timeout=3):
+                logger.info(f"  验证: 查找 '{text}'")
+                if d(textContains=text).exists(timeout=2):
                     result["success"] = True
-                    result["message"] = f"打卡成功 ({text})"
+                    result["message"] = f"打卡成功 (检测到: {text})"
+                    logger.info(f"  {result['message']}")
                     return result
 
-            # Check if the page shows a green checkmark or updated time
-            # Look for the time display near the button (indicating successful punch)
+            # 检查页面状态
+            logger.info("  未找到明确成功标志, 检查页面状态")
             if d(textContains="上班").exists(timeout=1) or d(textContains="下班").exists(timeout=1):
-                # Check for green check (✓) indicator
-                checkin_time_el = d(textContains=":")
-                if checkin_time_el.exists(timeout=1):
+                if d(textContains=":").exists(timeout=1):
                     result["success"] = True
                     result["message"] = "打卡已完成(页面已更新)"
+                    logger.info(f"  {result['message']}")
                     return result
 
-            # If we can't definitively determine success, assume it worked
-            # (the screenshot will be sent back for manual verification)
             result["success"] = True
             result["message"] = "打卡操作已执行，请查看截图确认"
+            logger.info(f"  {result['message']}")
             return result
 
         except Exception as e:
             result["message"] = f"验证打卡结果失败: {e}"
-            logger.error(result["message"])
+            logger.error(f"  {result['message']}")
             return result
 
     def _random_sleep(self, min_sec: float, max_sec: float):
-        """Sleep for a random duration to simulate human behavior."""
         duration = random.uniform(min_sec, max_sec)
         time.sleep(duration)
