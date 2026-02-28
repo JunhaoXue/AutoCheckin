@@ -143,7 +143,7 @@ class CheckinAutomation:
 
     def _open_wecom(self, d) -> bool:
         for attempt in range(3):
-            logger.info(f"  ADB am start 启动企业微信 (第{attempt + 1}次)")
+            logger.info(f"  启动企业微信 (第{attempt + 1}次)")
 
             if attempt > 0:
                 logger.info("  force-stop 企业微信后重试")
@@ -153,12 +153,15 @@ class CheckinAutomation:
                 )
                 time.sleep(1)
 
+            # 用 monkey 启动 — 自动找到正确的 launch activity
             result = subprocess.run(
-                ["adb", "shell", "am", "start",
-                 f"{WECOM_PACKAGE}/com.tencent.wework.launch.LaunchSplashActivity"],
+                ["adb", "shell", "monkey", "-p", WECOM_PACKAGE,
+                 "-c", "android.intent.category.LAUNCHER", "1"],
                 capture_output=True, text=True, timeout=10
             )
-            logger.info(f"  am start 输出: {result.stdout.strip()}")
+            logger.info(f"  monkey 输出: {result.stdout.strip()}")
+            if result.stderr.strip():
+                logger.info(f"  monkey stderr: {result.stderr.strip()}")
 
             for i in range(10):
                 time.sleep(0.5)
