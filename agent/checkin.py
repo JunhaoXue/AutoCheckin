@@ -130,106 +130,62 @@ class CheckinAutomation:
     # --- Screen ---
 
     def _ensure_screen_on(self):
-        """Wake screen with multi-method fallback (MIUI compatible)."""
-        for attempt in range(3):
-            if self._is_screen_on():
-                logger.info(f"  屏幕已亮")
-                return
+        """Wake screen using only idempotent commands (MIUI/HyperOS compatible).
 
-            logger.info(f"  唤醒屏幕 (第{attempt + 1}次)")
-            if attempt == 0:
-                # KEYCODE_WAKEUP (224) - 幂等，不会反向关屏
-                subprocess.run(["adb", "shell", "input", "keyevent", "224"],
-                               capture_output=True, timeout=5)
-            elif attempt == 1:
-                # KEYCODE_HOME (3) - 小米设备上 HOME 可以唤醒屏幕
-                subprocess.run(["adb", "shell", "input", "keyevent", "3"],
-                               capture_output=True, timeout=5)
-            else:
-                # KEYCODE_POWER (26) - 最后手段
-                subprocess.run(["adb", "shell", "input", "keyevent", "26"],
-                               capture_output=True, timeout=5)
-            time.sleep(1)
+        Never use KEYCODE_POWER(26) — it's a toggle that may turn screen OFF.
+        Just send all wake commands unconditionally and proceed.
+        """
+        # KEYCODE_WAKEUP (224) - idempotent, won't turn off
+        logger.info("  发送 WAKEUP(224)")
+        subprocess.run(["adb", "shell", "input", "keyevent", "224"],
+                       capture_output=True, timeout=5)
+        time.sleep(0.5)
 
-            # 滑动解锁（无密码锁屏）
-            subprocess.run(
-                ["adb", "shell", "input", "swipe", "500", "1800", "500", "800", "300"],
-                capture_output=True, timeout=5
-            )
-            time.sleep(0.5)
+        # KEYCODE_MENU (82) - works on many Xiaomi devices to wake
+        logger.info("  发送 MENU(82)")
+        subprocess.run(["adb", "shell", "input", "keyevent", "82"],
+                       capture_output=True, timeout=5)
+        time.sleep(0.5)
 
-        logger.info(f"  屏幕最终状态: {'亮' if self._is_screen_on() else '灭'}")
+        # Send WAKEUP again for good measure
+        subprocess.run(["adb", "shell", "input", "keyevent", "224"],
+                       capture_output=True, timeout=5)
+        time.sleep(1)
 
-    def _is_screen_on(self) -> bool:
-        """Check screen state via mWakefulness (most reliable)."""
-        try:
-            result = subprocess.run(
-                ["adb", "shell", "dumpsys", "power"],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.split("\n"):
-                if "mWakefulness=" in line:
-                    awake = "Awake" in line
-                    return awake
-                if "Display Power: state=" in line:
-                    return "ON" in line
-            return False
-        except Exception:
-            return False
+        # Swipe to dismiss lock screen (no password)
+        logger.info("  滑动解锁")
+        subprocess.run(
+            ["adb", "shell", "input", "swipe", "500", "1800", "500", "800", "300"],
+            capture_output=True, timeout=5
+        )
+        time.sleep(1)
 
     # --- App launch ---
 
-    def _get_foreground_package(self) -> str:
-        """Get foreground app package name (industry standard method)."""
-        try:
-            result = subprocess.run(
-                ["adb", "shell", "dumpsys", "activity", "activities"],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.split("\n"):
-                if "mResumedActivity" in line:
-                    # Format: mResumedActivity: ActivityRecord{...com.tencent.wework/...}
-                    if WECOM_PACKAGE in line:
-                        return WECOM_PACKAGE
-                    # Extract package name
-                    for part in line.split():
-                        if "/" in part:
-                            return part.split("/")[0]
-            return ""
-        except Exception:
-            return ""
-
     def _open_wecom(self, d) -> bool:
-        """Open WeCom using u2 API (internally uses monkey, the industry standard)."""
+        """Open WeCom using u2 app_start (internally uses monkey).
+
+        No foreground detection — the next step (_go_to_workbench) validates
+        by looking for actual UI elements, which is the ground truth.
+        """
         for attempt in range(3):
             logger.info(f"  启动企业微信 (第{attempt + 1}次)")
 
             if attempt > 0:
                 logger.info("  force-stop 后重试")
                 d.app_stop(WECOM_PACKAGE)
-                time.sleep(1)
+                time.sleep(2)
 
-            # u2 app_start 内部用 monkey 启动，是行业标准做法
             try:
                 d.app_start(WECOM_PACKAGE, stop=(attempt == 2))
             except Exception as e:
                 logger.warning(f"  app_start 异常: {e}")
                 continue
 
-            # u2 内置的 app_wait，等待 app 进入前台
-            logger.info("  等待企业微信进入前台...")
-            pid = d.app_wait(WECOM_PACKAGE, front=True, timeout=8)
-            if pid:
-                logger.info(f"  企业微信已在前台 (pid={pid})")
-                return True
-
-            # 兜底: ADB 检查
-            fg = self._get_foreground_package()
-            logger.info(f"  当前前台 app: {fg}")
-            if fg == WECOM_PACKAGE:
-                return True
-
-            logger.warning(f"  第{attempt + 1}次启动后企业微信未在前台")
+            # Just wait for the app to load, no foreground detection needed
+            logger.info("  等待 app 加载 (3s)")
+            time.sleep(3)
+            return True
 
         return False
 
