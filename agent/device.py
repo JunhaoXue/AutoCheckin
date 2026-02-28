@@ -71,7 +71,8 @@ class DeviceManager:
             if not self.ensure_adb_connected():
                 return False
 
-            self.d = u2.connect()
+            serial = f"127.0.0.1:{self._adb_port}" if self._adb_port else None
+            self.d = u2.connect(serial)
             info = self.d.info
             logger.info(f"uiautomator2 connected: {info.get('productName', 'unknown')}")
             return True
