@@ -65,13 +65,33 @@ class DeviceManager:
             logger.error(f"ADB connect error: {e}")
             return False
 
+    def _get_adb_serial(self) -> str:
+        """Auto-detect the connected ADB device serial."""
+        try:
+            result = subprocess.run(
+                ["adb", "devices"], capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.strip().split("\n")[1:]:
+                if "\tdevice" in line:
+                    serial = line.split("\t")[0]
+                    logger.info(f"Auto-detected ADB serial: {serial}")
+                    return serial
+        except Exception as e:
+            logger.error(f"Auto-detect ADB serial failed: {e}")
+        return ""
+
     def init_u2(self) -> bool:
         """Initialize uiautomator2 connection."""
         try:
             if not self.ensure_adb_connected():
                 return False
 
-            serial = f"127.0.0.1:{self._adb_port}" if self._adb_port else None
+            serial = self._get_adb_serial()
+            if not serial:
+                logger.error("No ADB device found for u2")
+                return False
+
+            logger.info(f"Connecting u2 to {serial}")
             self.d = u2.connect(serial)
             info = self.d.info
             logger.info(f"uiautomator2 connected: {info.get('productName', 'unknown')}")
