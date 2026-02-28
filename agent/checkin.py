@@ -204,6 +204,7 @@ class CheckinAutomation:
                 "打卡范围",
                 "上班打卡",
                 "下班打卡",
+                "加班下班",
             ]
             for _ in range(15):  # Wait up to 15 seconds
                 for text in indicators:
@@ -231,7 +232,7 @@ class CheckinAutomation:
             if checkin_type == "上班" or checkin_type == "auto":
                 button_texts.append("上班打卡")
             if checkin_type == "下班" or checkin_type == "auto":
-                button_texts.append("下班打卡")
+                button_texts.extend(["下班打卡", "加班下班"])
 
             for text in button_texts:
                 btn = d(textContains=text)
