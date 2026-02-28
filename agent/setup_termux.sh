@@ -16,9 +16,10 @@ pkg upgrade -y
 echo "[2/6] Installing system packages..."
 pkg install -y python android-tools openssh
 
-# Install pip dependencies
+# Create virtual environment and install dependencies
 echo "[3/6] Installing Python dependencies..."
-pip install --upgrade pip
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Setup storage access (for screenshots)
@@ -51,10 +52,12 @@ echo "   - Set server_ws_url to your cloud server address"
 echo "   - Set adb_port to your wireless debugging port"
 echo "   - Set wifi_ssid to your company WiFi name"
 echo ""
-echo "6. Initialize uiautomator2:"
+echo "6. Activate venv and initialize uiautomator2:"
+echo "   source venv/bin/activate"
 echo "   python -m uiautomator2 init"
 echo ""
 echo "7. Start the agent:"
+echo "   source venv/bin/activate"
 echo "   python main.py"
 echo ""
 echo "For auto-start on boot:"
@@ -63,5 +66,6 @@ echo "   2. mkdir -p ~/.termux/boot"
 echo "   3. Create ~/.termux/boot/start-agent.sh with content:"
 echo "      #!/data/data/com.termux/files/usr/bin/bash"
 echo "      cd $(pwd)"
+echo "      source venv/bin/activate"
 echo "      python main.py >> logs/agent.log 2>&1 &"
 echo ""
