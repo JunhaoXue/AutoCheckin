@@ -7,41 +7,40 @@ set -e
 echo "=== AutoCheckin Agent Setup ==="
 echo ""
 
-# Update Termux packages
-echo "[1/6] Updating packages..."
-pkg update -y
-pkg upgrade -y
+# Update Termux packages (auto-answer config prompts with default)
+echo "[1/7] Updating packages..."
+pkg update -y -o Dpkg::Options::="--force-confold"
+pkg upgrade -y -o Dpkg::Options::="--force-confold"
 
 # Install required system packages
-# - python: Python interpreter
-# - android-tools: ADB for device self-control
-# - libxml2, libxslt: required by lxml (uiautomator2 dependency)
-# - libjpeg-turbo, zlib: required by Pillow (image processing)
-# - ndk-sysroot, clang, make: C compiler toolchain for building native extensions
-echo "[2/6] Installing system packages..."
+echo "[2/7] Installing system packages..."
 pkg install -y python android-tools openssh \
     libxml2 libxslt libjpeg-turbo zlib \
     ndk-sysroot clang make pkg-config
 
-# Create virtual environment and install dependencies
-echo "[3/6] Creating Python virtual environment..."
-python -m venv venv
+# Install Termux's pre-built python packages to avoid compiling from source
+# These are native C extensions that are hard to compile on phone
+echo "[3/7] Installing pre-built native Python packages..."
+pkg install -y python-lxml python-pillow || true
+
+# Create virtual environment with access to system packages
+echo "[4/7] Creating Python virtual environment..."
+rm -rf venv
+python -m venv --system-site-packages venv
 source venv/bin/activate
 
-echo "[4/6] Installing Python dependencies..."
-# Install lxml with static deps to avoid libxml2 API compatibility issues
-STATIC_DEPS=true pip install lxml
-# Install remaining dependencies
-pip install -r requirements.txt
+# Install remaining Python dependencies (lxml and Pillow already from system)
+echo "[5/7] Installing Python dependencies..."
+pip install uiautomator2==3.2.2 websockets==13.0 apscheduler==3.10.4 pyyaml==6.0.1
 
 # Setup storage access (for screenshots)
-echo "[5/6] Setting up storage access..."
+echo "[6/7] Setting up storage access..."
 termux-setup-storage || true
 
 # Create log directory
 mkdir -p logs
 
-echo "[6/6] Setup complete!"
+echo "[7/7] Setup complete!"
 echo ""
 echo "=== Setup Complete ==="
 echo ""
