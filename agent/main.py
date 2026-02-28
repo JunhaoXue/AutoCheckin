@@ -17,6 +17,28 @@ from device import DeviceManager
 from checkin import CheckinAutomation
 from ws_client import WSClient
 
+
+class WSLogHandler(logging.Handler):
+    """Forwards log records to the server via WebSocket."""
+
+    def __init__(self, ws_client: WSClient):
+        super().__init__(level=logging.INFO)
+        self._ws = ws_client
+        self._loop = None
+
+    def emit(self, record):
+        if not self._ws.connected:
+            return
+        try:
+            if self._loop is None or self._loop.is_closed():
+                self._loop = asyncio.get_event_loop()
+            self._loop.call_soon_threadsafe(
+                asyncio.ensure_future,
+                self._ws.send_log(record.levelname, self.format(record), record.name)
+            )
+        except Exception:
+            pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -123,6 +145,11 @@ class Agent:
 
         # Setup WebSocket command handler
         self.ws.on_command(self._handle_command)
+
+        # Attach log handler to forward logs to server
+        ws_handler = WSLogHandler(self.ws)
+        ws_handler.setFormatter(logging.Formatter("%(message)s"))
+        logging.getLogger().addHandler(ws_handler)
 
         # Setup scheduler
         self._setup_schedule()

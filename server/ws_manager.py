@@ -121,6 +121,8 @@ class WSManager:
             await self._handle_screenshot(msg)
         elif msg_type == "error":
             await self._handle_error(msg)
+        elif msg_type == "log":
+            await self._handle_log(msg)
         else:
             logger.warning(f"Unknown message type from phone: {msg_type}")
 
@@ -226,6 +228,28 @@ class WSManager:
         await self._broadcast_to_browsers({
             "type": "error_update",
             "data": data
+        })
+
+    async def _handle_log(self, msg: dict):
+        data = msg.get("data", {})
+        ts = msg.get("ts", datetime.now().isoformat())
+
+        # Save to DB
+        db = await get_db()
+        try:
+            await db.execute(
+                "INSERT INTO agent_logs (level, message, logger, ts) VALUES (?, ?, ?, ?)",
+                (data.get("level", "INFO"), data.get("message", ""),
+                 data.get("logger", ""), ts)
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        # Forward to browsers
+        await self._broadcast_to_browsers({
+            "type": "log_update",
+            "data": {**data, "ts": ts}
         })
 
     # --- Helpers ---

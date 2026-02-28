@@ -36,7 +36,16 @@ CREATE TABLE IF NOT EXISTS schedule_config (
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS agent_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL DEFAULT 'INFO',
+    message TEXT NOT NULL,
+    logger TEXT,
+    ts TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_checkin_time ON checkin_logs(checkin_time);
+CREATE INDEX IF NOT EXISTS idx_agent_logs_ts ON agent_logs(ts);
 """
 
 

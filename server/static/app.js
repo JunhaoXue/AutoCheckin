@@ -59,6 +59,9 @@ function handleWSMessage(msg) {
         case 'error_update':
             addLog(`错误: ${msg.data.error_code} - ${msg.data.message}`, 'error');
             break;
+        case 'log_update':
+            handleLogUpdate(msg.data);
+            break;
         case 'pong':
             break;
     }
@@ -269,12 +272,12 @@ function formatTime(isoStr) {
     }
 }
 
-function addLog(text, level = 'info') {
+function addLog(text, level = 'info', time = null) {
     const area = document.getElementById('log-area');
     const line = document.createElement('div');
     line.className = 'log-line';
-    const now = new Date().toLocaleTimeString('zh-CN');
-    line.innerHTML = `<span class="log-time">[${now}]</span> <span class="log-${level}">${escapeHtml(text)}</span>`;
+    const ts = time || new Date().toLocaleTimeString('zh-CN');
+    line.innerHTML = `<span class="log-time">[${ts}]</span> <span class="log-${level}">${escapeHtml(text)}</span>`;
     area.appendChild(line);
     area.scrollTop = area.scrollHeight;
     // Keep max 200 lines
@@ -287,10 +290,30 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function handleLogUpdate(data) {
+    const level = (data.level || 'INFO').toLowerCase();
+    const logLevel = level === 'error' ? 'error' : level === 'warning' ? 'error' : 'info';
+    const ts = data.ts ? new Date(data.ts).toLocaleTimeString('zh-CN') : '';
+    const prefix = data.logger ? `[${data.logger}] ` : '';
+    addLog(`${prefix}${data.message}`, logLevel, ts);
+}
+
+async function loadLogs() {
+    try {
+        const res = await fetch('/api/logs?limit=100');
+        const data = await res.json();
+        (data.logs || []).forEach(log => {
+            handleLogUpdate(log);
+        });
+    } catch (e) {
+        console.error('Load logs error:', e);
+    }
+}
+
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
     connectWS();
     loadSchedule();
     loadHistory();
-    addLog('Dashboard 已加载', 'info');
+    loadLogs();
 });

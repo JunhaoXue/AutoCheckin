@@ -58,6 +58,21 @@ async def get_history(days: int = Query(default=7, ge=1, le=90)):
         await db.close()
 
 
+@router.get("/api/logs")
+async def get_logs(limit: int = Query(default=200, ge=1, le=1000)):
+    """Get recent agent logs."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM agent_logs ORDER BY id DESC LIMIT ?", (limit,)
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        rows.reverse()
+        return {"logs": rows}
+    finally:
+        await db.close()
+
+
 @router.post("/api/checkin")
 async def trigger_checkin(request: Request):
     """Manually trigger a check-in."""

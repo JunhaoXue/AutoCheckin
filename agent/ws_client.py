@@ -143,6 +143,18 @@ class WSClient:
             msg["msg_id"] = msg_id
         await self.send(msg)
 
+    async def send_log(self, level: str, message: str, logger_name: str = ""):
+        """Send a log entry to the server."""
+        await self.send({
+            "type": "log",
+            "ts": datetime.now().isoformat(),
+            "data": {
+                "level": level,
+                "message": message,
+                "logger": logger_name,
+            },
+        })
+
     @property
     def connected(self) -> bool:
         return self.ws is not None and self.ws.open
