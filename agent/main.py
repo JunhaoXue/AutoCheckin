@@ -21,21 +21,17 @@ from ws_client import WSClient
 class WSLogHandler(logging.Handler):
     """Forwards log records to the server via WebSocket."""
 
-    def __init__(self, ws_client: WSClient):
+    def __init__(self, ws_client: WSClient, loop: asyncio.AbstractEventLoop):
         super().__init__(level=logging.INFO)
         self._ws = ws_client
-        self._loop = None
+        self._loop = loop
 
     def emit(self, record):
         if not self._ws.connected:
             return
         try:
-            if self._loop is None or self._loop.is_closed():
-                self._loop = asyncio.get_event_loop()
-            self._loop.call_soon_threadsafe(
-                asyncio.ensure_future,
-                self._ws.send_log(record.levelname, self.format(record), record.name)
-            )
+            coro = self._ws.send_log(record.levelname, self.format(record), record.name)
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
         except Exception:
             pass
 
@@ -147,7 +143,8 @@ class Agent:
         self.ws.on_command(self._handle_command)
 
         # Attach log handler to forward logs to server
-        ws_handler = WSLogHandler(self.ws)
+        loop = asyncio.get_running_loop()
+        ws_handler = WSLogHandler(self.ws, loop)
         ws_handler.setFormatter(logging.Formatter("%(message)s"))
         logging.getLogger().addHandler(ws_handler)
 
