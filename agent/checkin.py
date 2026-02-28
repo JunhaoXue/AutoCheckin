@@ -1,6 +1,9 @@
 """Core check-in automation logic for Enterprise WeChat (企业微信).
 
-Flow: Wake screen -> Open WeCom -> 工作台 tab -> 打卡 icon -> click button -> verify
+Flow: Wake screen -> Connect u2 -> Open WeCom -> 工作台 -> 打卡 -> click button -> verify
+
+Click strategy: u2 finds elements (accessibility API, no permission needed),
+then clicks via u2. On INJECT_EVENTS error, falls back to adb shell input tap.
 """
 
 import subprocess
@@ -18,6 +21,55 @@ class CheckinAutomation:
     def __init__(self, device_manager):
         self.dm = device_manager
 
+    # --- Safe click: u2 first, adb fallback ---
+
+    def _safe_click_element(self, el, name: str) -> bool:
+        """Click a u2 element. On INJECT_EVENTS error, fall back to adb tap."""
+        try:
+            el.click()
+            logger.info(f"  点击 '{name}' 成功 (u2)")
+            return True
+        except Exception as e:
+            err = str(e)
+            if "INJECT_EVENTS" in err or "SecurityException" in err:
+                logger.warning(f"  u2 点击被拒, 使用 adb input tap 兜底")
+                return self._adb_click_element(el, name)
+            logger.error(f"  点击 '{name}' 失败: {e}")
+            return False
+
+    def _adb_click_element(self, el, name: str) -> bool:
+        """Click element using adb shell input tap (gets coords from u2 bounds)."""
+        try:
+            bounds = el.info.get("bounds", {})
+            x = (bounds.get("left", 0) + bounds.get("right", 0)) // 2
+            y = (bounds.get("top", 0) + bounds.get("bottom", 0)) // 2
+            logger.info(f"  adb tap ({x}, {y}) for '{name}'")
+            subprocess.run(
+                ["adb", "shell", "input", "tap", str(x), str(y)],
+                capture_output=True, timeout=5
+            )
+            return True
+        except Exception as e:
+            logger.error(f"  adb tap 失败: {e}")
+            return False
+
+    def _adb_tap(self, x: int, y: int):
+        """Direct adb tap at coordinates."""
+        subprocess.run(
+            ["adb", "shell", "input", "tap", str(x), str(y)],
+            capture_output=True, timeout=5
+        )
+
+    def _adb_swipe(self, x1, y1, x2, y2, duration=300):
+        """ADB swipe."""
+        subprocess.run(
+            ["adb", "shell", "input", "swipe",
+             str(x1), str(y1), str(x2), str(y2), str(duration)],
+            capture_output=True, timeout=5
+        )
+
+    # --- Main flow ---
+
     def perform_checkin(self, checkin_type: str = "auto") -> dict:
         result = {
             "success": False,
@@ -31,21 +83,14 @@ class CheckinAutomation:
             # Step 1: Wake screen
             logger.info("[1/7] 唤醒屏幕")
             self._ensure_screen_on()
-            self._random_sleep(1.0, 2.0)
+            time.sleep(2)
 
-            # Step 2: Connect u2
+            # Step 2: Connect u2 + restart server for fresh permissions
             logger.info("[2/7] 连接 uiautomator2")
-            for attempt in range(3):
-                if self.dm.ensure_u2():
-                    logger.info(f"[2/7] u2 连接成功 (第{attempt + 1}次)")
-                    break
-                logger.warning(f"[2/7] u2 连接失败 (第{attempt + 1}次), 重试...")
-                time.sleep(2)
-            else:
+            if not self._connect_u2_fresh():
                 result["message"] = "uiautomator2 连接失败"
                 logger.error(f"[2/7] {result['message']}")
                 return result
-
             d = self.dm.d
 
             # Step 3: Open WeCom
@@ -133,41 +178,62 @@ class CheckinAutomation:
         """Wake screen using only idempotent commands (MIUI/HyperOS compatible).
 
         Never use KEYCODE_POWER(26) — it's a toggle that may turn screen OFF.
-        Just send all wake commands unconditionally and proceed.
         """
-        # KEYCODE_WAKEUP (224) - idempotent, won't turn off
         logger.info("  发送 WAKEUP(224)")
         subprocess.run(["adb", "shell", "input", "keyevent", "224"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        # KEYCODE_MENU (82) - works on many Xiaomi devices to wake
         logger.info("  发送 MENU(82)")
         subprocess.run(["adb", "shell", "input", "keyevent", "82"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        # Send WAKEUP again for good measure
         subprocess.run(["adb", "shell", "input", "keyevent", "224"],
                        capture_output=True, timeout=5)
         time.sleep(1)
 
-        # Swipe to dismiss lock screen (no password)
         logger.info("  滑动解锁")
-        subprocess.run(
-            ["adb", "shell", "input", "swipe", "500", "1800", "500", "800", "300"],
-            capture_output=True, timeout=5
-        )
+        self._adb_swipe(500, 1800, 500, 800, 300)
         time.sleep(1)
+
+    # --- u2 connection ---
+
+    def _connect_u2_fresh(self) -> bool:
+        """Connect u2 and restart server for fresh INJECT_EVENTS permission."""
+        for attempt in range(3):
+            if self.dm.ensure_u2():
+                logger.info(f"[2/7] u2 连接成功 (第{attempt + 1}次)")
+                break
+            logger.warning(f"[2/7] u2 连接失败 (第{attempt + 1}次), 重试...")
+            time.sleep(2)
+        else:
+            return False
+
+        d = self.dm.d
+
+        # Restart u2 server to get fresh permissions
+        logger.info("[2/7] 重启 u2 server 刷新权限")
+        try:
+            d.uiautomator.stop()
+            time.sleep(2)
+            d.uiautomator.start()
+            time.sleep(3)
+            # Verify the server works
+            d.info
+            logger.info("[2/7] u2 server 重启完成, 可用")
+        except Exception as e:
+            logger.warning(f"[2/7] u2 server 重启异常: {e}, 尝试完全重连")
+            self.dm.d = None
+            if not self.dm.init_u2():
+                return False
+
+        return True
 
     # --- App launch ---
 
     def _open_wecom(self, d) -> bool:
-        """Open WeCom using u2 app_start (internally uses monkey).
-
-        No foreground detection — the next step (_go_to_workbench) validates
-        by looking for actual UI elements, which is the ground truth.
-        """
+        """Open WeCom using u2 app_start (internally uses monkey)."""
         for attempt in range(3):
             logger.info(f"  启动企业微信 (第{attempt + 1}次)")
 
@@ -182,7 +248,6 @@ class CheckinAutomation:
                 logger.warning(f"  app_start 异常: {e}")
                 continue
 
-            # Just wait for the app to load, no foreground detection needed
             logger.info("  等待 app 加载 (3s)")
             time.sleep(3)
             return True
@@ -196,18 +261,14 @@ class CheckinAutomation:
             logger.info("  查找 text='工作台'")
             tab = d(text="工作台")
             if tab.exists(timeout=5):
-                logger.info("  找到 '工作台', 点击")
-                tab.click()
-                self._random_sleep(0.5, 1.0)
-                return True
+                logger.info("  找到 '工作台'")
+                return self._safe_click_element(tab, "工作台")
 
             logger.info("  查找 description='工作台'")
             tab = d(description="工作台")
             if tab.exists(timeout=3):
-                logger.info("  找到 '工作台'(description), 点击")
-                tab.click()
-                self._random_sleep(0.5, 1.0)
-                return True
+                logger.info("  找到 '工作台'(description)")
+                return self._safe_click_element(tab, "工作台")
 
             logger.warning("  未找到工作台 Tab")
             return False
@@ -222,19 +283,17 @@ class CheckinAutomation:
 
                 checkin = d(text="打卡")
                 if checkin.exists(timeout=3):
-                    logger.info("  找到 text='打卡', 点击")
-                    checkin.click()
-                    return True
+                    logger.info("  找到 text='打卡'")
+                    return self._safe_click_element(checkin, "打卡")
 
                 checkin = d(textContains="打卡")
                 if checkin.exists(timeout=2):
-                    logger.info("  找到 textContains='打卡', 点击")
-                    checkin.click()
-                    return True
+                    logger.info("  找到 textContains='打卡'")
+                    return self._safe_click_element(checkin, "打卡")
 
                 if attempt < 2:
                     logger.info("  未找到, 向上滑动")
-                    d.swipe_ext("up", scale=0.3)
+                    self._adb_swipe(500, 1500, 500, 800, 300)
                     self._random_sleep(0.5, 1.0)
 
             logger.warning("  滑动3次后仍未找到打卡入口")
@@ -293,29 +352,29 @@ class CheckinAutomation:
                         result["actual_type"] = "上班"
                     else:
                         result["actual_type"] = "下班"
-                    logger.info(f"  找到按钮 '{text}', 点击")
-                    btn.click()
-                    result["success"] = True
-                    result["message"] = f"已点击{text}按钮"
-                    return result
+                    logger.info(f"  找到按钮 '{text}'")
+                    if self._safe_click_element(btn, text):
+                        result["success"] = True
+                        result["message"] = f"已点击{text}按钮"
+                        return result
 
-            # Fallback: 含关键词的可点击元素
+            # Fallback: clickable element with keyword
             for keyword in ["打卡", "下班", "上班"]:
                 logger.info(f"  Fallback: 查找含 '{keyword}' 的可点击元素")
                 btn = d(textContains=keyword, clickable=True)
                 if btn.exists(timeout=2):
-                    logger.info(f"  找到含 '{keyword}' 的元素, 点击")
-                    btn.click()
-                    result["success"] = True
-                    result["message"] = f"已点击含'{keyword}'的按钮"
-                    return result
+                    logger.info(f"  找到含 '{keyword}' 的元素")
+                    if self._safe_click_element(btn, keyword):
+                        result["success"] = True
+                        result["message"] = f"已点击含'{keyword}'的按钮"
+                        return result
 
-            # Last resort: 坐标点击
+            # Last resort: coordinate tap via adb
             width, height = d.window_size()
             center_x = width // 2
             center_y = int(height * 0.65)
-            logger.info(f"  所有按钮均未找到, 坐标点击 ({center_x}, {center_y})")
-            d.click(center_x, center_y)
+            logger.info(f"  所有按钮均未找到, adb tap ({center_x}, {center_y})")
+            self._adb_tap(center_x, center_y)
             result["success"] = True
             result["message"] = "已点击打卡区域(坐标)"
             return result
