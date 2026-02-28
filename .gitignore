@@ -8,3 +8,4 @@ screenshots/
 *.png
 *.jpg
 .env
+venv/
