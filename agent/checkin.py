@@ -201,10 +201,15 @@ class CheckinAutomation:
             # Look for "上下班打卡" tab header or the check-in button
             indicators = [
                 "上下班打卡",
+                "外出打卡",
                 "打卡范围",
                 "上班打卡",
                 "下班打卡",
+                "迟到打卡",
+                "早退打卡",
                 "加班下班",
+                "更新打卡",
+                "已打卡",
             ]
             for _ in range(15):  # Wait up to 15 seconds
                 for text in indicators:
@@ -227,30 +232,51 @@ class CheckinAutomation:
         result = {"success": False, "message": "", "actual_type": checkin_type}
 
         try:
-            # Try to find the check-in button by text
+            # All known button texts in WeCom check-in page:
+            # 上班打卡 - normal morning check-in
+            # 下班打卡 - normal evening check-out
+            # 迟到打卡 - late morning check-in
+            # 早退打卡 - early leave check-out
+            # 加班下班 - overtime clock-out
+            # 更新打卡 - update existing record
+            all_button_texts = {
+                "上班": ["上班打卡", "迟到打卡"],
+                "下班": ["下班打卡", "加班下班", "早退打卡"],
+                "any":  ["更新打卡"],
+            }
+
+            # Build search list based on checkin_type
             button_texts = []
-            if checkin_type == "上班" or checkin_type == "auto":
-                button_texts.append("上班打卡")
-            if checkin_type == "下班" or checkin_type == "auto":
-                button_texts.extend(["下班打卡", "加班下班"])
+            if checkin_type == "上班":
+                button_texts = all_button_texts["上班"] + all_button_texts["any"]
+            elif checkin_type == "下班":
+                button_texts = all_button_texts["下班"] + all_button_texts["any"]
+            else:  # auto
+                button_texts = (all_button_texts["上班"] +
+                                all_button_texts["下班"] +
+                                all_button_texts["any"])
 
             for text in button_texts:
                 btn = d(textContains=text)
                 if btn.exists(timeout=3):
-                    result["actual_type"] = "上班" if "上班" in text else "下班"
+                    if any(k in text for k in ["上班", "迟到"]):
+                        result["actual_type"] = "上班"
+                    else:
+                        result["actual_type"] = "下班"
                     logger.info(f"Found button: {text}")
                     btn.click()
                     result["success"] = True
                     result["message"] = f"已点击{text}按钮"
                     return result
 
-            # Fallback: try to find any clickable element with 打卡 text
-            btn = d(textContains="打卡", clickable=True)
-            if btn.exists(timeout=3):
-                btn.click()
-                result["success"] = True
-                result["message"] = "已点击打卡按钮"
-                return result
+            # Fallback: try to find any clickable element with 打卡 or 下班 text
+            for keyword in ["打卡", "下班", "上班"]:
+                btn = d(textContains=keyword, clickable=True)
+                if btn.exists(timeout=2):
+                    btn.click()
+                    result["success"] = True
+                    result["message"] = f"已点击含'{keyword}'的按钮"
+                    return result
 
             # Last resort: look for the large circle in center of screen
             # The check-in button is typically a large circle in the center-bottom area
@@ -279,6 +305,7 @@ class CheckinAutomation:
                 "打卡成功",
                 "已打卡",
                 "更新打卡",
+                "打卡时间",
             ]
 
             # Wait a moment for result to appear
