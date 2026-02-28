@@ -28,11 +28,16 @@ class CheckinAutomation:
         }
 
         try:
-            # Step 1: Wake screen
+            # Step 1: Wake screen — must be ON before anything else
             logger.info("[1/7] 唤醒屏幕")
             self.dm.wake_screen()
-            screen_on = self.dm.is_screen_on()
-            logger.info(f"[1/7] 屏幕状态: {'亮' if screen_on else '灭'}")
+            if not self.dm.is_screen_on():
+                logger.warning("[1/7] 屏幕仍灭, 强制唤醒")
+                subprocess.run(["adb", "shell", "input", "keyevent", "26"], capture_output=True, timeout=5)
+                time.sleep(1)
+                subprocess.run(["adb", "shell", "input", "keyevent", "82"], capture_output=True, timeout=5)
+                time.sleep(1)
+            logger.info(f"[1/7] 屏幕状态: {'亮' if self.dm.is_screen_on() else '灭'}")
             self._random_sleep(1.0, 2.0)
 
             # Step 2: Connect u2
@@ -143,15 +148,14 @@ class CheckinAutomation:
 
     def _resolve_launch_activity(self) -> str:
         """Query the correct launch activity for WeCom."""
+        # Method 1: resolve-activity
         try:
             result = subprocess.run(
                 ["adb", "shell", "cmd", "package", "resolve-activity",
                  "--brief", WECOM_PACKAGE],
                 capture_output=True, text=True, timeout=5
             )
-            # Output format:
-            #   priority=0 preferredOrder=0 match=0x108000 ...
-            #   com.tencent.wework/.launch.WwMainActivity
+            logger.info(f"  resolve-activity 输出: {result.stdout.strip()}")
             for line in result.stdout.strip().split("\n"):
                 line = line.strip()
                 if "/" in line and WECOM_PACKAGE in line:
@@ -159,6 +163,29 @@ class CheckinAutomation:
                     return line
         except Exception as e:
             logger.warning(f"  resolve-activity 失败: {e}")
+
+        # Method 2: dumpsys package
+        try:
+            result = subprocess.run(
+                ["adb", "shell", "dumpsys", "package", WECOM_PACKAGE],
+                capture_output=True, text=True, timeout=10
+            )
+            in_launcher = False
+            for line in result.stdout.split("\n"):
+                if "android.intent.action.MAIN" in line:
+                    in_launcher = True
+                if in_launcher and "android.intent.category.LAUNCHER" in line:
+                    in_launcher = True
+                if in_launcher and (WECOM_PACKAGE + "/") in line:
+                    activity = line.strip().split()[-1]
+                    logger.info(f"  从 dumpsys 解析到 Activity: {activity}")
+                    return activity
+                if in_launcher and line.strip() == "":
+                    in_launcher = False
+        except Exception as e:
+            logger.warning(f"  dumpsys 解析失败: {e}")
+
+        logger.warning("  未能解析启动 Activity")
         return ""
 
     def _open_wecom(self, d) -> bool:
