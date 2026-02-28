@@ -12,23 +12,36 @@ echo "[1/6] Updating packages..."
 pkg update -y
 pkg upgrade -y
 
-# Install required packages
+# Install required system packages
+# - python: Python interpreter
+# - android-tools: ADB for device self-control
+# - libxml2, libxslt: required by lxml (uiautomator2 dependency)
+# - libjpeg-turbo, zlib: required by Pillow (image processing)
+# - ndk-sysroot, clang, make: C compiler toolchain for building native extensions
 echo "[2/6] Installing system packages..."
-pkg install -y python android-tools openssh
+pkg install -y python android-tools openssh \
+    libxml2 libxslt libjpeg-turbo zlib \
+    ndk-sysroot clang make pkg-config
 
 # Create virtual environment and install dependencies
-echo "[3/6] Installing Python dependencies..."
+echo "[3/6] Creating Python virtual environment..."
 python -m venv venv
 source venv/bin/activate
+
+echo "[4/6] Installing Python dependencies..."
+# Install lxml with static deps to avoid libxml2 API compatibility issues
+STATIC_DEPS=true pip install lxml
+# Install remaining dependencies
 pip install -r requirements.txt
 
 # Setup storage access (for screenshots)
-echo "[4/6] Setting up storage access..."
+echo "[5/6] Setting up storage access..."
 termux-setup-storage || true
 
 # Create log directory
 mkdir -p logs
 
+echo "[6/6] Setup complete!"
 echo ""
 echo "=== Setup Complete ==="
 echo ""
