@@ -188,6 +188,8 @@ class DeviceManager:
         try:
             if self.d:
                 img = self.d.screenshot()
+                if img.mode == "RGBA":
+                    img = img.convert("RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=60)
                 return base64.b64encode(buf.getvalue()).decode()
@@ -200,6 +202,8 @@ class DeviceManager:
                 if result.returncode == 0:
                     from PIL import Image
                     img = Image.open(io.BytesIO(result.stdout))
+                    if img.mode == "RGBA":
+                        img = img.convert("RGB")
                     buf = io.BytesIO()
                     img.save(buf, format="JPEG", quality=60)
                     return base64.b64encode(buf.getvalue()).decode()
