@@ -164,18 +164,22 @@ class DeviceManager:
             return False
 
     def wake_screen(self):
-        """Wake up screen if off."""
-        if not self.is_screen_on():
+        """Wake up screen if off, with multiple retry attempts."""
+        for attempt in range(3):
+            if self.is_screen_on():
+                logger.info("Screen is on")
+                return
+            logger.info(f"Waking screen (attempt {attempt + 1})")
             subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_WAKEUP"],
                            capture_output=True, timeout=5)
-            time.sleep(0.5)
+            time.sleep(1)
             # Swipe up to unlock (for lock screen without password)
             subprocess.run(
                 ["adb", "shell", "input", "swipe", "500", "1800", "500", "800", "300"],
                 capture_output=True, timeout=5
             )
-            time.sleep(0.5)
-            logger.info("Screen woken up")
+            time.sleep(1)
+        logger.info("Screen wake attempts finished")
 
     def take_screenshot_b64(self) -> str:
         """Take screenshot and return as base64 JPEG."""

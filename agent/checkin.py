@@ -43,17 +43,22 @@ class CheckinAutomation:
         }
 
         try:
-            # Ensure u2 is connected
-            if not self.dm.ensure_u2():
+            # Step 1: Wake screen first (ADB works even without u2)
+            logger.info("Step 1: Wake screen")
+            self.dm.wake_screen()
+            self._random_sleep(1.0, 2.0)
+
+            # Ensure u2 is connected (retry up to 3 times)
+            for u2_attempt in range(3):
+                if self.dm.ensure_u2():
+                    break
+                logger.warning(f"u2 connect attempt {u2_attempt + 1} failed, retrying...")
+                time.sleep(2)
+            else:
                 result["message"] = "uiautomator2 连接失败"
                 return result
 
             d = self.dm.d
-
-            # Step 1: Wake screen
-            logger.info("Step 1: Wake screen")
-            self.dm.wake_screen()
-            self._random_sleep(0.5, 1.0)
 
             # Step 2: Open WeCom app
             logger.info("Step 2: Open WeCom")
@@ -127,21 +132,41 @@ class CheckinAutomation:
         return result
 
     def _open_wecom(self, d) -> bool:
-        """Open Enterprise WeChat app."""
-        try:
-            d.app_start(WECOM_PACKAGE, stop=False)
-            # Wait for app to appear
-            for _ in range(10):
-                if d.app_current().get("package") == WECOM_PACKAGE:
-                    return True
-                time.sleep(0.5)
-            # Force start
-            d.app_start(WECOM_PACKAGE, stop=True)
-            time.sleep(2)
-            return d.app_current().get("package") == WECOM_PACKAGE
-        except Exception as e:
-            logger.error(f"Open WeCom failed: {e}")
-            return False
+        """Open Enterprise WeChat app with retry and ADB fallback."""
+        import subprocess
+
+        for attempt in range(3):
+            try:
+                logger.info(f"Opening WeCom (attempt {attempt + 1})")
+
+                # Attempt 1 & 2: use uiautomator2
+                if attempt < 2:
+                    d.app_start(WECOM_PACKAGE, stop=(attempt == 1))
+                else:
+                    # Attempt 3: ADB am start as fallback
+                    subprocess.run(
+                        ["adb", "shell", "am", "start", "-n",
+                         f"{WECOM_PACKAGE}/com.tencent.wework.launch.LaunchSplashActivity"],
+                        capture_output=True, timeout=10
+                    )
+
+                # Wait for app to appear
+                for _ in range(10):
+                    if d.app_current().get("package") == WECOM_PACKAGE:
+                        logger.info("WeCom opened successfully")
+                        return True
+                    time.sleep(0.5)
+
+            except Exception as e:
+                logger.warning(f"Open WeCom attempt {attempt + 1} failed: {e}")
+                # Reconnect u2 before retry
+                if attempt < 2:
+                    self.dm.ensure_u2()
+                    d = self.dm.d
+                    time.sleep(1)
+
+        logger.error("Open WeCom failed after all attempts")
+        return False
 
     def _go_to_workbench(self, d) -> bool:
         """Navigate to 工作台 tab at bottom of WeCom."""
