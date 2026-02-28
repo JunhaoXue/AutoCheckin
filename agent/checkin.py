@@ -141,7 +141,30 @@ class CheckinAutomation:
         except Exception:
             return False
 
+    def _resolve_launch_activity(self) -> str:
+        """Query the correct launch activity for WeCom."""
+        try:
+            result = subprocess.run(
+                ["adb", "shell", "cmd", "package", "resolve-activity",
+                 "--brief", WECOM_PACKAGE],
+                capture_output=True, text=True, timeout=5
+            )
+            # Output format:
+            #   priority=0 preferredOrder=0 match=0x108000 ...
+            #   com.tencent.wework/.launch.WwMainActivity
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if "/" in line and WECOM_PACKAGE in line:
+                    logger.info(f"  解析到启动 Activity: {line}")
+                    return line
+        except Exception as e:
+            logger.warning(f"  resolve-activity 失败: {e}")
+        return ""
+
     def _open_wecom(self, d) -> bool:
+        # 先查出正确的 launch activity
+        activity = self._resolve_launch_activity()
+
         for attempt in range(3):
             logger.info(f"  启动企业微信 (第{attempt + 1}次)")
 
@@ -153,15 +176,21 @@ class CheckinAutomation:
                 )
                 time.sleep(1)
 
-            # 用 monkey 启动 — 自动找到正确的 launch activity
-            result = subprocess.run(
-                ["adb", "shell", "monkey", "-p", WECOM_PACKAGE,
-                 "-c", "android.intent.category.LAUNCHER", "1"],
-                capture_output=True, text=True, timeout=10
-            )
-            logger.info(f"  monkey 输出: {result.stdout.strip()}")
-            if result.stderr.strip():
-                logger.info(f"  monkey stderr: {result.stderr.strip()}")
+            if activity:
+                # 标准做法: am start -n package/activity
+                result = subprocess.run(
+                    ["adb", "shell", "am", "start", "-n", activity],
+                    capture_output=True, text=True, timeout=10
+                )
+                logger.info(f"  am start 输出: {result.stdout.strip()}")
+            else:
+                # Fallback: monkey
+                logger.info("  未找到 Activity, 使用 monkey 启动")
+                subprocess.run(
+                    ["adb", "shell", "monkey", "-p", WECOM_PACKAGE,
+                     "-c", "android.intent.category.LAUNCHER", "1"],
+                    capture_output=True, timeout=10
+                )
 
             for i in range(10):
                 time.sleep(0.5)
