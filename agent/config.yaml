@@ -1,0 +1,27 @@
+# AutoCheckin Agent Configuration
+
+# Cloud server WebSocket URL
+# Change this to your actual server address
+server_ws_url: "ws://YOUR_SERVER_IP:8080/ws/phone"
+
+# Auth token (must match server config if authentication is enabled)
+token: ""
+
+# Wireless ADB port (from Developer Options -> Wireless Debugging)
+# You need to check this on your phone and update accordingly
+adb_port: 5555
+
+# Company WiFi SSID (leave empty to skip WiFi check)
+# Set this to ensure check-in only happens when connected to office WiFi
+wifi_ssid: ""
+
+# Schedule configuration
+schedule:
+  morning_time: "08:30"
+  evening_time: "18:30"
+  # Maximum random delay in seconds (exponential distribution)
+  # Most delays will be short (< 5 min), max 15 min
+  random_delay_max: 900
+  # Skip weekends and Chinese public holidays
+  skip_weekends: true
+  skip_holidays: true

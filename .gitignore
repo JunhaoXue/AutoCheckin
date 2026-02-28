@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.db
+*.log
+logs/
+screenshots/
+.claude/
+*.png
+*.jpg
+.env
