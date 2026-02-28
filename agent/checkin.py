@@ -212,21 +212,17 @@ class CheckinAutomation:
 
         d = self.dm.d
 
-        # Restart u2 server to get fresh permissions
+        # Restart u2 server to get fresh INJECT_EVENTS permission
         logger.info("[2/7] 重启 u2 server 刷新权限")
         try:
-            d.uiautomator.stop()
-            time.sleep(2)
-            d.uiautomator.start()
-            time.sleep(3)
-            # Verify the server works
-            d.info
-            logger.info("[2/7] u2 server 重启完成, 可用")
+            d.reset_uiautomator("refresh INJECT_EVENTS permission")
+            logger.info("[2/7] u2 server 重启完成")
         except Exception as e:
             logger.warning(f"[2/7] u2 server 重启异常: {e}, 尝试完全重连")
             self.dm.d = None
             if not self.dm.init_u2():
                 return False
+            d = self.dm.d
 
         return True
 
@@ -248,29 +244,53 @@ class CheckinAutomation:
                 logger.warning(f"  app_start 异常: {e}")
                 continue
 
-            logger.info("  等待 app 加载 (3s)")
-            time.sleep(3)
+            logger.info("  等待 app 加载 (5s)")
+            time.sleep(5)
             return True
 
         return False
 
     # --- Navigation ---
 
+    def _dismiss_popups(self, d):
+        """Dismiss common WeCom popups/dialogs that block interaction."""
+        popup_buttons = ["我知道了", "确定", "稍后", "关闭", "取消", "暂不"]
+        for text in popup_buttons:
+            btn = d(text=text)
+            if btn.exists(timeout=0.5):
+                logger.info(f"  关闭弹窗: '{text}'")
+                self._safe_click_element(btn, text)
+                time.sleep(0.5)
+
     def _go_to_workbench(self, d) -> bool:
         try:
-            logger.info("  查找 text='工作台'")
-            tab = d(text="工作台")
-            if tab.exists(timeout=5):
-                logger.info("  找到 '工作台'")
-                return self._safe_click_element(tab, "工作台")
+            # Dismiss any popups first
+            self._dismiss_popups(d)
 
-            logger.info("  查找 description='工作台'")
-            tab = d(description="工作台")
-            if tab.exists(timeout=3):
-                logger.info("  找到 '工作台'(description)")
-                return self._safe_click_element(tab, "工作台")
+            for attempt in range(3):
+                logger.info(f"  查找 text='工作台' (第{attempt + 1}次)")
+                tab = d(text="工作台")
+                if not tab.exists(timeout=5):
+                    tab = d(description="工作台")
+                    if not tab.exists(timeout=3):
+                        logger.warning("  未找到工作台 Tab")
+                        return False
 
-            logger.warning("  未找到工作台 Tab")
+                logger.info("  找到 '工作台', 点击")
+                self._safe_click_element(tab, "工作台")
+                time.sleep(2)
+
+                # Verify: workbench should have 打卡/审批/日报 etc.
+                workbench_indicators = ["打卡", "审批", "日报", "汇报", "考勤"]
+                for text in workbench_indicators:
+                    if d(text=text).exists(timeout=1):
+                        logger.info(f"  已确认进入工作台 (检测到: '{text}')")
+                        return True
+
+                logger.warning(f"  第{attempt + 1}次点击后未检测到工作台内容, 重试")
+                self._dismiss_popups(d)
+
+            logger.warning("  3次尝试后仍未进入工作台")
             return False
         except Exception as e:
             logger.error(f"  工作台导航异常: {e}")
