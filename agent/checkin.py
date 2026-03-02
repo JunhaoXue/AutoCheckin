@@ -268,8 +268,8 @@ class CheckinAutomation:
                 logger.warning(f"  app_start 异常: {e}")
                 continue
 
-            logger.info("  等待 app 加载 (5s)")
-            time.sleep(5)
+            logger.info("  等待 app 加载 (3s)")
+            time.sleep(3)
             return True
 
         return False
