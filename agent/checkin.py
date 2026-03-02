@@ -1,9 +1,9 @@
 """Core check-in automation logic for Enterprise WeChat (企业微信).
 
-Flow: Wake screen -> Connect u2 -> Open WeCom -> 工作台 -> 打卡 -> click button -> verify
+Flow: Wake screen -> Connect u2 -> Kill+Cold start WeCom -> 工作台 -> 打卡 -> click button -> verify
 
-Click strategy: u2 finds elements (accessibility API, no permission needed),
-then clicks via u2. On INJECT_EVENTS error, falls back to adb shell input tap.
+Click strategy: u2 finds elements (accessibility API), clicks via u2.
+On INJECT_EVENTS error, falls back to adb shell input tap.
 """
 
 import subprocess
@@ -85,57 +85,51 @@ class CheckinAutomation:
             self._ensure_screen_on()
             time.sleep(2)
 
-            # Step 2: Connect u2 + restart server for fresh permissions
+            # Step 2: Connect u2
             logger.info("[2/7] 连接 uiautomator2")
-            if not self._connect_u2_fresh():
+            if not self._connect_u2():
                 result["message"] = "uiautomator2 连接失败"
                 logger.error(f"[2/7] {result['message']}")
                 return result
             d = self.dm.d
 
-            # Step 3: Open WeCom
-            logger.info("[3/7] 打开企业微信")
-            if not self._open_wecom(d):
-                result["message"] = "打开企业微信失败"
+            # Step 3: Kill + cold start WeCom (clean state every time)
+            logger.info("[3/7] 冷启动企业微信")
+            d.app_stop(WECOM_PACKAGE)
+            logger.info("  已 kill 企业微信")
+            time.sleep(1)
+            d.app_start(WECOM_PACKAGE)
+            logger.info("  等待 app 加载 (3s)")
+            time.sleep(3)
+            self._dismiss_popups(d)
+
+            # Step 4: Navigate to 工作台
+            logger.info("[4/7] 点击工作台 Tab")
+            if not self._go_to_workbench(d):
+                result["message"] = "无法切换到工作台"
                 result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                logger.error(f"[3/7] {result['message']}")
+                logger.error(f"[4/7] {result['message']}")
                 return result
-            logger.info("[3/7] 企业微信已打开")
+            logger.info("[4/7] 已进入工作台")
+            self._random_sleep(1.0, 2.0)
 
-            # Step 4: Detect current page and navigate
-            logger.info("[4/7] 检测当前页面状态")
-            page = self._detect_page(d)
+            # Step 5: Click 打卡 entry
+            logger.info("[5/7] 查找并点击打卡入口")
+            if not self._click_checkin_entry(d):
+                result["message"] = "未找到打卡入口"
+                result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[5/7] {result['message']}")
+                return result
+            logger.info("[5/7] 已点击打卡入口, 等待页面加载")
+            self._random_sleep(2.0, 3.0)
 
-            if page == "checkin":
-                logger.info("[4/7] 已在打卡页面, 跳过导航")
-            else:
-                if page != "workbench":
-                    logger.info("[4/7] 点击工作台 Tab")
-                    if not self._go_to_workbench(d):
-                        result["message"] = "无法切换到工作台"
-                        result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                        logger.error(f"[4/7] {result['message']}")
-                        return result
-                    logger.info("[4/7] 已进入工作台")
-                    self._random_sleep(1.0, 2.0)
-                else:
-                    logger.info("[4/7] 已在工作台, 跳过")
-
-                logger.info("[5/7] 查找并点击打卡入口")
-                if not self._click_checkin_entry(d):
-                    result["message"] = "未找到打卡入口"
-                    result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                    logger.error(f"[5/7] {result['message']}")
-                    return result
-                logger.info("[5/7] 已点击打卡入口, 等待页面加载")
-                self._random_sleep(2.0, 3.0)
-
-                logger.info("[6/7] 等待打卡页面加载")
-                if not self._wait_for_checkin_page(d):
-                    result["message"] = "打卡页面加载失败"
-                    result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                    logger.error(f"[6/7] {result['message']}")
-                    return result
+            # Step 6: Wait for page + click button
+            logger.info("[6/7] 等待打卡页面加载")
+            if not self._wait_for_checkin_page(d):
+                result["message"] = "打卡页面加载失败"
+                result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[6/7] {result['message']}")
+                return result
             self._random_sleep(0.5, 1.0)
 
             logger.info(f"[6/7] 查找打卡按钮 (类型: {checkin_type})")
@@ -182,108 +176,34 @@ class CheckinAutomation:
 
     def _ensure_screen_on(self):
         """Wake screen on Redmi Turbo 4 (Android 15 + HyperOS)."""
-        # Method 1: Android 15+ direct display control (bypasses input framework)
         logger.info("  cmd display power-on (Android 15+)")
         subprocess.run(["adb", "shell", "cmd", "display", "power-on", "0"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        # Method 2: HOME(3) — confirmed working on Xiaomi by Appium community
         logger.info("  HOME(3)")
         subprocess.run(["adb", "shell", "input", "keyevent", "3"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        # Method 3: WAKEUP(224) — standard Android
         subprocess.run(["adb", "shell", "input", "keyevent", "224"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        # Swipe to dismiss lock screen
         logger.info("  滑动解锁")
         self._adb_swipe(500, 1800, 500, 800, 300)
         time.sleep(1)
 
     # --- u2 connection ---
 
-    def _connect_u2_fresh(self) -> bool:
-        """Connect u2 and restart server for fresh INJECT_EVENTS permission."""
+    def _connect_u2(self) -> bool:
+        """Connect u2 with retry."""
         for attempt in range(3):
             if self.dm.ensure_u2():
                 logger.info(f"[2/7] u2 连接成功 (第{attempt + 1}次)")
-                break
+                return True
             logger.warning(f"[2/7] u2 连接失败 (第{attempt + 1}次), 重试...")
             time.sleep(2)
-        else:
-            return False
-
-        d = self.dm.d
-
-        # Restart u2 server to get fresh INJECT_EVENTS permission
-        logger.info("[2/7] 重启 u2 server 刷新权限")
-        try:
-            d.reset_uiautomator()
-            logger.info("[2/7] u2 server 重启完成")
-        except Exception as e:
-            logger.warning(f"[2/7] u2 server 重启异常: {e}, 尝试完全重连")
-            self.dm.d = None
-            if not self.dm.init_u2():
-                return False
-            d = self.dm.d
-
-        return True
-
-    # --- Page detection ---
-
-    CHECKIN_PAGE_INDICATORS = [
-        "上班打卡", "下班打卡", "迟到打卡", "早退打卡",
-        "加班下班", "更新打卡", "已打卡", "打卡范围",
-        "上下班打卡", "外出打卡",
-    ]
-
-    WORKBENCH_INDICATORS = ["审批", "日报", "汇报", "考勤"]
-
-    def _detect_page(self, d) -> str:
-        """Detect current page: 'checkin', 'workbench', or 'other'."""
-        for text in self.CHECKIN_PAGE_INDICATORS:
-            if d(textContains=text).exists(timeout=0.5):
-                logger.info(f"  当前页面: 打卡页 ('{text}')")
-                return "checkin"
-
-        # Check workbench: has 打卡 entry or other workbench-specific items
-        if d(text="打卡").exists(timeout=0.5):
-            logger.info("  当前页面: 工作台 ('打卡')")
-            return "workbench"
-        for text in self.WORKBENCH_INDICATORS:
-            if d(text=text).exists(timeout=0.3):
-                logger.info(f"  当前页面: 工作台 ('{text}')")
-                return "workbench"
-
-        logger.info("  当前页面: 其他")
-        return "other"
-
-    # --- App launch ---
-
-    def _open_wecom(self, d) -> bool:
-        """Open WeCom using u2 app_start (internally uses monkey)."""
-        for attempt in range(3):
-            logger.info(f"  启动企业微信 (第{attempt + 1}次)")
-
-            if attempt > 0:
-                logger.info("  force-stop 后重试")
-                d.app_stop(WECOM_PACKAGE)
-                time.sleep(2)
-
-            try:
-                d.app_start(WECOM_PACKAGE, stop=(attempt == 2))
-            except Exception as e:
-                logger.warning(f"  app_start 异常: {e}")
-                continue
-
-            logger.info("  等待 app 加载 (3s)")
-            time.sleep(3)
-            return True
-
         return False
 
     # --- Navigation ---
@@ -299,10 +219,17 @@ class CheckinAutomation:
                 time.sleep(0.5)
 
     def _go_to_workbench(self, d) -> bool:
+        """Click 工作台 tab. Verify by checking selected state."""
         try:
             self._dismiss_popups(d)
 
-            logger.info("  查找 text='工作台'")
+            # Check if already on workbench (tab selected)
+            tab = d(text="工作台", selected=True)
+            if tab.exists(timeout=1):
+                logger.info("  工作台 Tab 已选中")
+                return True
+
+            # Find and click the tab
             tab = d(text="工作台")
             if not tab.exists(timeout=5):
                 tab = d(description="工作台")
@@ -313,7 +240,19 @@ class CheckinAutomation:
             logger.info("  找到 '工作台', 点击")
             self._safe_click_element(tab, "工作台")
             time.sleep(2)
-            return True
+
+            # Verify: tab should now be selected
+            if d(text="工作台", selected=True).exists(timeout=2):
+                logger.info("  工作台 Tab 已选中 (验证通过)")
+                return True
+
+            # Fallback: just check if 打卡 entry is visible
+            if d(text="打卡").exists(timeout=2):
+                logger.info("  检测到打卡入口 (验证通过)")
+                return True
+
+            logger.warning("  点击后未确认进入工作台")
+            return False
         except Exception as e:
             logger.error(f"  工作台导航异常: {e}")
             return False
