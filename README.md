@@ -320,6 +320,15 @@ sudo systemctl enable autocheckin
 sudo systemctl start autocheckin
 ```
 
+常用运维命令：
+
+```bash
+sudo systemctl restart autocheckin   # 重启服务
+sudo systemctl status autocheckin    # 查看状态
+sudo journalctl -u autocheckin -f    # 实时查看日志
+sudo journalctl -u autocheckin -n 50 # 查看最近50条日志
+```
+
 ### 手机端部署（Redmi Turbo 4）
 
 #### 1. 安装Termux
