@@ -16,6 +16,7 @@
 |------|------|
 | 定时自动打卡 | 按配置时间自动执行上班/下班打卡，带随机延时防检测 |
 | 远程手动打卡 | 通过Web面板一键触发上班/下班打卡 |
+| SMS屏幕唤醒 | 打卡前自动发送短信唤醒手机屏幕（阿里云短信服务） |
 | 实时状态监控 | 查看手机在线状态、电量、WiFi连接、ADB状态 |
 | 打卡历史记录 | 查看历史打卡记录，包含时间、类型、成功/失败、触发方式 |
 | 远程截图 | 一键获取手机当前屏幕截图 |
@@ -24,41 +25,57 @@
 
 ### 打卡流程
 
+无论手动触发还是定时触发，都走统一流程：
+
 ```
-定时触发 / 手动触发
-       │
-       ▼
-  检查WiFi是否连接公司网络
-       │ 是
-       ▼
-  唤醒屏幕 → 滑动解锁
-       │
-       ▼
-  打开企业微信App
-       │
-       ▼
-  点击底部"工作台"Tab
-       │
-       ▼
-  在"内部管理"区域找到"打卡"并点击
-       │
-       ▼
-  等待打卡页面加载（显示"你已在打卡范围内"）
-       │
-       ▼
-  点击中间圆形打卡按钮（"上班打卡"/"下班打卡"）
-       │
-       ▼
-  验证打卡结果 → 截图
-       │
-       ▼
-  上报结果到服务器 → 返回手机桌面
+定时触发: Agent定时器 → request_checkin(WS) → 服务端
+手动触发: Dashboard → POST /api/checkin → 服务端
+                            │
+                            ▼
+                   服务端发送SMS唤醒屏幕
+                            │
+                            ▼
+                   服务端发送checkin命令给Agent
+                            │
+                            ▼
+                   Agent等待5s（SMS到达亮屏）
+                            │
+                            ▼
+                   POWER键 + 滑动解锁
+                            │
+                            ▼
+                   Kill企业微信 → 冷启动（干净状态）
+                            │
+                            ▼
+                   等待App加载 → 关闭弹窗
+                            │
+                            ▼
+                   点击底部"工作台"Tab（验证selected状态）
+                            │
+                            ▼
+                   找到并点击"打卡"入口
+                            │
+                            ▼
+                   等待打卡页面加载
+                            │
+                            ▼
+                   点击打卡按钮（上班打卡/下班打卡/迟到打卡等）
+                            │
+                            ▼
+                   验证打卡结果 → 截图 → 上报服务器 → 返回桌面
 ```
+
+### 点击策略
+
+针对小米/红米设备的 `INJECT_EVENTS` 权限限制，采用双重点击策略：
+
+1. **u2 点击**（优先）：通过 uiautomator2 accessibility API 查找元素并点击
+2. **adb tap 兜底**：u2 点击被 SecurityException 拒绝时，从元素 bounds 计算坐标，使用 `adb shell input tap` 执行点击
 
 ### 防检测策略
 
 - **指数分布随机延时**：打卡时间不是固定的，大多数延时较短（1-5分钟），偶尔较长，模拟真人行为
-- **随机操作间隔**：UI操作之间有200-500ms的随机等待
+- **随机操作间隔**：UI操作之间有随机等待
 - **节假日/周末跳过**：内置中国法定节假日表，自动跳过非工作日
 - **WiFi验证**：打卡前检查是否连接公司WiFi，避免异常打卡
 
@@ -76,25 +93,33 @@
 │  uiautomator2          │              │  REST API         │◄─────────►│          │
 │  (UI自动化)             │              │  (接口层)          │  实时推送  │          │
 │                        │              │                   │           │          │
-│  DeviceManager         │              │  SQLite           │           │          │
-│  (ADB/设备管理)         │              │  (数据存储)        │           │          │
+│  DeviceManager         │              │  Aliyun SMS       │           │          │
+│  (ADB/设备管理)         │              │  (短信唤醒)        │           │          │
 │                        │              │                   │           │          │
-│  WebSocket Client      │              │  Jinja2 Templates │           │          │
-│  (自动重连)             │              │  (页面渲染)        │           │          │
+│  WebSocket Client      │              │  SQLite           │           │          │
+│  (自动重连)             │              │  (数据存储)        │           │          │
 └────────────────────────┘              └───────────────────┘           └──────────┘
 ```
 
 ### 核心设计决策
 
-**1. 调度器运行在手机端**
+**1. SMS唤醒统一由服务端发送**
 
-调度器（APScheduler）运行在手机上而非服务器上。即使服务器宕机或网络中断，手机仍然能按时打卡。服务器仅作为远程控制面板和日志存储。
+手机在公司内网，不应反向调用服务器API发短信。所有打卡触发（手动/定时）都由服务端统一发送SMS唤醒屏幕，再下发打卡命令给Agent。
 
-**2. WebSocket由手机主动连接**
+**2. Kill + 冷启动保证干净状态**
+
+每次打卡前 `app_stop` + `app_start` 企业微信，避免残留页面状态导致流程异常。比检测当前页面状态更简单可靠。
+
+**3. 调度器运行在手机端**
+
+调度器（APScheduler）运行在手机上。定时触发时通过 WebSocket 请求服务端发起打卡。即使短暂断网，重连后仍可正常工作。
+
+**4. WebSocket由手机主动连接**
 
 手机主动连接云服务器的WebSocket端点，不需要内网穿透（frp/ngrok）。手机在任何NAT网络环境下都能连通，断线自动重连（指数退避）。
 
-**3. 无需ROOT**
+**5. 无需ROOT**
 
 使用uiautomator2通过ADB无线调试控制手机UI，不需要ROOT权限。通过Termux在手机本地运行Python脚本，ADB自连接到本机。
 
@@ -107,19 +132,23 @@ autocheckin/
 │   ├── api.py                       # REST API + WebSocket 端点定义
 │   │   ├── GET  /api/status         # 获取设备和打卡状态
 │   │   ├── GET  /api/history        # 获取打卡历史记录
-│   │   ├── POST /api/checkin        # 手动触发打卡
+│   │   ├── GET  /api/logs           # 获取Agent日志
+│   │   ├── POST /api/checkin        # 触发打卡（发SMS + 下发命令）
+│   │   ├── POST /api/sms/wake       # 手动发送唤醒短信
 │   │   ├── POST /api/screenshot     # 请求手机截图
 │   │   ├── GET  /api/schedule       # 获取打卡时间配置
 │   │   ├── PUT  /api/schedule       # 更新打卡时间配置
 │   │   ├── WS   /ws/phone           # 手机Agent WebSocket端点
 │   │   └── WS   /ws/dashboard       # 浏览器Dashboard WebSocket端点
+│   ├── sms.py                       # 阿里云SMS短信服务（屏幕唤醒）
 │   ├── database.py                  # SQLite数据库初始化和连接管理
-│   ├── models.py                    # Pydantic数据模型定义
 │   ├── ws_manager.py                # WebSocket连接管理器（核心）
 │   │   ├── 管理手机和浏览器的WebSocket连接
 │   │   ├── 路由手机消息到数据库和浏览器
+│   │   ├── 处理request_checkin（发SMS + 下发命令）
 │   │   ├── 保存截图文件
 │   │   └── 维护实时状态（设备状态、今日打卡）
+│   ├── .env                         # 环境变量（阿里云密钥，不入库）
 │   ├── templates/
 │   │   └── index.html               # Dashboard单页面
 │   ├── static/
@@ -131,25 +160,28 @@ autocheckin/
 ├── agent/                           # 手机端代码（运行在Termux）
 │   ├── main.py                      # Agent入口，包含：
 │   │   ├── APScheduler定时任务调度
+│   │   ├── 定时触发 → request_checkin发给服务端
 │   │   ├── WebSocket命令分发
 │   │   ├── 心跳上报循环
 │   │   ├── 节假日/工作日判断
 │   │   └── 指数分布随机延时
 │   ├── checkin.py                   # 打卡自动化核心逻辑
-│   │   ├── perform_checkin()        # 完整打卡流程编排
-│   │   ├── _open_wecom()            # 打开企业微信
-│   │   ├── _go_to_workbench()       # 导航到工作台
-│   │   ├── _click_checkin_entry()   # 点击打卡入口
-│   │   ├── _click_checkin_button()  # 点击打卡按钮
-│   │   └── _verify_checkin_result() # 验证打卡结果
+│   │   ├── perform_checkin()        # 完整打卡流程编排（7步）
+│   │   ├── _ensure_screen_on()     # 等待SMS + POWER键 + 滑动解锁
+│   │   ├── _go_to_workbench()      # 导航到工作台（验证Tab selected状态）
+│   │   ├── _click_checkin_entry()  # 点击打卡入口
+│   │   ├── _click_checkin_button() # 点击打卡按钮
+│   │   ├── _verify_checkin_result()# 验证打卡结果
+│   │   ├── _safe_click_element()   # u2点击 + adb tap兜底
+│   │   └── _dismiss_popups()       # 关闭弹窗
 │   ├── device.py                    # 设备管理
-│   │   ├── ADB无线自连接
+│   │   ├── ADB Serial自动检测
 │   │   ├── uiautomator2初始化
 │   │   ├── 获取电量/WiFi/屏幕状态
-│   │   ├── 唤醒屏幕/解锁
 │   │   └── 截图（base64编码）
 │   ├── ws_client.py                 # WebSocket客户端（指数退避自动重连）
 │   ├── config.yaml                  # Agent配置文件
+│   ├── start.sh                     # 拉取代码并重启Agent
 │   ├── setup_termux.sh              # Termux一键安装脚本
 │   └── requirements.txt
 │
@@ -165,10 +197,12 @@ autocheckin/
 | type | 说明 | 关键字段 |
 |------|------|---------|
 | `heartbeat` | 每30秒心跳 | battery_level, wifi_ssid, adb_connected |
+| `request_checkin` | 请求服务端触发打卡（定时触发） | checkin_type |
 | `checkin_result` | 打卡结果 | success, checkin_type, checkin_time, screenshot_b64, trigger |
 | `device_status` | 设备完整状态 | 电量/WiFi/ADB + today_checkins + schedule |
 | `screenshot_result` | 截图响应 | screenshot_b64 |
 | `error` | 错误上报 | error_code, message, screenshot_b64 |
+| `log` | 日志转发 | level, message, logger |
 
 #### 服务器 → 手机
 
@@ -187,6 +221,7 @@ autocheckin/
 | `device_update` | 设备状态更新 |
 | `checkin_update` | 打卡结果更新 |
 | `screenshot_update` | 新截图 |
+| `log_update` | 实时日志 |
 | `connection_status` | 手机上线/离线 |
 
 ### 数据库设计（SQLite）
@@ -209,6 +244,11 @@ schedule_config (
     id=1, morning_time, evening_time,
     random_delay_max, skip_weekends, skip_holidays, updated_at
 )
+
+-- Agent日志
+agent_logs (
+    id, level, message, logger, ts
+)
 ```
 
 ### 技术栈
@@ -216,6 +256,7 @@ schedule_config (
 | 组件 | 技术 | 说明 |
 |------|------|------|
 | 服务端框架 | FastAPI | 异步高性能，原生WebSocket支持 |
+| 短信服务 | 阿里云SMS | 发送短信唤醒手机屏幕 |
 | 数据库 | SQLite (aiosqlite) | 轻量，单文件，异步访问 |
 | 页面渲染 | Jinja2 + 原生JS | 无前端框架依赖，轻量 |
 | UI自动化 | uiautomator2 | 通过ADB控制安卓UI，无需ROOT |
@@ -227,15 +268,36 @@ schedule_config (
 
 ### 云服务器部署
 
+#### 1. 安装依赖
+
 ```bash
 cd server
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
+```
+
+#### 2. 配置环境变量
+
+创建 `server/.env`（已加入 `.gitignore`）：
+
+```env
+ALIYUN_ACCESS_KEY_ID=你的阿里云AccessKeyID
+ALIYUN_ACCESS_KEY_SECRET=你的阿里云AccessKeySecret
+ALIYUN_SMS_SIGN_NAME=你的短信签名
+ALIYUN_SMS_TEMPLATE_CODE=你的短信模板编号
+SMS_PHONE_NUMBER=手机号码
+```
+
+#### 3. 启动服务
+
+```bash
 python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
 访问 `http://服务器IP:8080` 即可看到Dashboard。
 
-生产环境建议配合nginx + HTTPS + systemd：
+#### 4. 生产环境（systemd）
 
 ```bash
 # /etc/systemd/system/autocheckin.service
@@ -246,11 +308,16 @@ After=network.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/autocheckin/server
-ExecStart=/usr/bin/python3 -m uvicorn main:app --host 127.0.0.1 --port 8080
+ExecStart=/home/ubuntu/autocheckin/server/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8088
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable autocheckin
+sudo systemctl start autocheckin
 ```
 
 ### 手机端部署（Redmi Turbo 4）
@@ -291,7 +358,7 @@ adb devices
 > - 配对端口和连接端口是不同的，不要搞混
 > - 必须用 `127.0.0.1`，不要用WiFi IP
 > - 保持分屏模式，不要离开无线调试页面
-> - MIUI/HyperOS切换App时可能关闭无线调试端口
+> - 小米/红米设备需要在开发者选项中开启"USB调试（安全设置）"以减少权限拒绝
 
 #### 4. 初始化uiautomator2
 
@@ -311,6 +378,8 @@ wifi_ssid: "公司WiFi名称"
 schedule:
   morning_time: "08:30"
   evening_time: "18:30"
+  random_delay_max: 900
+  skip_weekends: true
 ```
 
 #### 6. 启动Agent
@@ -346,10 +415,21 @@ chmod +x ~/.termux/boot/start-agent.sh
 - 配对端口≠连接端口，注意区分
 - 执行 `adb kill-server` 后重试
 
+### u2 点击被拒（INJECT_EVENTS SecurityException）
+- 小米/红米设备常见，因 `injectInputEvent` 需要特殊权限
+- 系统已自动使用 `adb shell input tap` 兜底，无需手动处理
+- 若要彻底解决：开发者选项 → 开启"USB调试（安全设置）"
+
 ### 打卡按钮找不到
 - 企业微信版本更新可能导致UI变化
 - 修改 `checkin.py` 中的文本匹配规则适配新UI
 - 使用截图功能排查当前页面状态
+
+### 手机屏幕无法唤醒
+- 确认服务端 `.env` 中阿里云SMS配置正确
+- 确认手机号码正确
+- 可通过 `POST /api/sms/wake` 手动测试短信发送
+- POWER键作为备用唤醒方式
 
 ### 手机重启后Agent不工作
 - 需要重新开启无线调试并配对ADB
@@ -362,5 +442,4 @@ chmod +x ~/.termux/boot/start-agent.sh
 - [ ] 多设备管理（支持多台手机同时管理）
 - [ ] Web面板登录认证（用户名密码）
 - [ ] 自动更新节假日表（接入公共API）
-- [ ] 打包为独立Android App（替代Termux方案）
 - [ ] ADB断线自动重连机制优化
