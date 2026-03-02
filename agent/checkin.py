@@ -181,24 +181,25 @@ class CheckinAutomation:
     # --- Screen ---
 
     def _ensure_screen_on(self):
-        """Wake screen using only idempotent commands (MIUI/HyperOS compatible).
+        """Wake screen on Redmi Turbo 4 (Android 15 + HyperOS)."""
+        # Method 1: Android 15+ direct display control (bypasses input framework)
+        logger.info("  cmd display power-on (Android 15+)")
+        subprocess.run(["adb", "shell", "cmd", "display", "power-on", "0"],
+                       capture_output=True, timeout=5)
+        time.sleep(0.5)
 
-        Never use KEYCODE_POWER(26) — it's a toggle that may turn screen OFF.
-        """
-        logger.info("  发送 WAKEUP(224)")
+        # Method 2: HOME(3) — confirmed working on Xiaomi by Appium community
+        logger.info("  HOME(3)")
+        subprocess.run(["adb", "shell", "input", "keyevent", "3"],
+                       capture_output=True, timeout=5)
+        time.sleep(0.5)
+
+        # Method 3: WAKEUP(224) — standard Android
         subprocess.run(["adb", "shell", "input", "keyevent", "224"],
                        capture_output=True, timeout=5)
         time.sleep(0.5)
 
-        logger.info("  发送 MENU(82)")
-        subprocess.run(["adb", "shell", "input", "keyevent", "82"],
-                       capture_output=True, timeout=5)
-        time.sleep(0.5)
-
-        subprocess.run(["adb", "shell", "input", "keyevent", "224"],
-                       capture_output=True, timeout=5)
-        time.sleep(1)
-
+        # Swipe to dismiss lock screen
         logger.info("  滑动解锁")
         self._adb_swipe(500, 1800, 500, 800, 300)
         time.sleep(1)
@@ -221,7 +222,7 @@ class CheckinAutomation:
         # Restart u2 server to get fresh INJECT_EVENTS permission
         logger.info("[2/7] 重启 u2 server 刷新权限")
         try:
-            d.reset_uiautomator("refresh INJECT_EVENTS permission")
+            d.reset_uiautomator()
             logger.info("[2/7] u2 server 重启完成")
         except Exception as e:
             logger.warning(f"[2/7] u2 server 重启异常: {e}, 尝试完全重连")
