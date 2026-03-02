@@ -10,6 +10,7 @@ import subprocess
 import time
 import random
 import logging
+import urllib.request
 from datetime import datetime
 
 logger = logging.getLogger("agent.checkin")
@@ -18,8 +19,10 @@ WECOM_PACKAGE = "com.tencent.wework"
 
 
 class CheckinAutomation:
-    def __init__(self, device_manager):
+    def __init__(self, device_manager, server_url: str = ""):
         self.dm = device_manager
+        # http://host:port base URL for server API
+        self.server_url = server_url.rstrip("/") if server_url else ""
 
     # --- Safe click: u2 first, adb fallback ---
 
@@ -175,20 +178,27 @@ class CheckinAutomation:
     # --- Screen ---
 
     def _ensure_screen_on(self):
-        """Wake screen on Redmi Turbo 4 (Android 15 + HyperOS)."""
-        logger.info("  cmd display power-on (Android 15+)")
-        subprocess.run(["adb", "shell", "cmd", "display", "power-on", "0"],
-                       capture_output=True, timeout=5)
-        time.sleep(0.5)
+        """Wake screen by sending SMS (via server API) + ADB POWER key."""
+        if self.server_url:
+            logger.info("  发送短信唤醒屏幕")
+            try:
+                req = urllib.request.Request(
+                    f"{self.server_url}/api/sms/wake",
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                    data=b"{}"
+                )
+                urllib.request.urlopen(req, timeout=10)
+                logger.info("  短信已发送, 等待 5s")
+                time.sleep(5)
+            except Exception as e:
+                logger.warning(f"  短信发送失败: {e}")
 
-        logger.info("  HOME(3)")
-        subprocess.run(["adb", "shell", "input", "keyevent", "3"],
+        # POWER(26) as backup
+        logger.info("  POWER(26)")
+        subprocess.run(["adb", "shell", "input", "keyevent", "26"],
                        capture_output=True, timeout=5)
-        time.sleep(0.5)
-
-        subprocess.run(["adb", "shell", "input", "keyevent", "224"],
-                       capture_output=True, timeout=5)
-        time.sleep(0.5)
+        time.sleep(1)
 
         logger.info("  滑动解锁")
         self._adb_swipe(500, 1800, 500, 800, 300)

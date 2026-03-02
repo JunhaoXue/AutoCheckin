@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from database import get_db
 from ws_manager import manager
+from sms import sms_service
 
 logger = logging.getLogger("autocheckin.api")
 router = APIRouter()
@@ -71,6 +72,15 @@ async def get_logs(limit: int = Query(default=200, ge=1, le=1000)):
         return {"logs": rows}
     finally:
         await db.close()
+
+
+@router.post("/api/sms/wake")
+async def send_wake_sms():
+    """Send SMS to wake the phone screen."""
+    result = sms_service.send_wake_sms()
+    if result["success"]:
+        return {"message": "短信已发送"}
+    return JSONResponse(status_code=500, content={"error": result.get("error", "发送失败")})
 
 
 @router.post("/api/checkin")

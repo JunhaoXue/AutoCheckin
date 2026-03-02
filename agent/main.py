@@ -120,7 +120,10 @@ class Agent:
     def __init__(self):
         self.config = load_config()
         self.dm = DeviceManager()
-        self.checkin = CheckinAutomation(self.dm)
+        # Derive HTTP URL from ws URL: ws://host:port/ws/phone -> http://host:port
+        ws_url = self.config.get("server_ws_url", "")
+        server_url = ws_url.replace("ws://", "http://").replace("wss://", "https://").split("/ws/")[0]
+        self.checkin = CheckinAutomation(self.dm, server_url=server_url)
         self.ws = WSClient(
             server_url=self.config.get("server_ws_url", "ws://localhost:8080/ws/phone"),
             token=self.config.get("token", ""),

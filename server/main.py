@@ -1,6 +1,11 @@
 import logging
+from pathlib import Path
+
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv(Path(__file__).parent / ".env")
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
