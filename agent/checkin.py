@@ -288,34 +288,20 @@ class CheckinAutomation:
 
     def _go_to_workbench(self, d) -> bool:
         try:
-            # Dismiss any popups first
             self._dismiss_popups(d)
 
-            for attempt in range(3):
-                logger.info(f"  查找 text='工作台' (第{attempt + 1}次)")
-                tab = d(text="工作台")
-                if not tab.exists(timeout=5):
-                    tab = d(description="工作台")
-                    if not tab.exists(timeout=3):
-                        logger.warning("  未找到工作台 Tab")
-                        return False
+            logger.info("  查找 text='工作台'")
+            tab = d(text="工作台")
+            if not tab.exists(timeout=5):
+                tab = d(description="工作台")
+                if not tab.exists(timeout=3):
+                    logger.warning("  未找到工作台 Tab")
+                    return False
 
-                logger.info("  找到 '工作台', 点击")
-                self._safe_click_element(tab, "工作台")
-                time.sleep(2)
-
-                # Verify: workbench should have 打卡/审批/日报 etc.
-                workbench_indicators = ["打卡", "审批", "日报", "汇报", "考勤"]
-                for text in workbench_indicators:
-                    if d(text=text).exists(timeout=1):
-                        logger.info(f"  已确认进入工作台 (检测到: '{text}')")
-                        return True
-
-                logger.warning(f"  第{attempt + 1}次点击后未检测到工作台内容, 重试")
-                self._dismiss_popups(d)
-
-            logger.warning("  3次尝试后仍未进入工作台")
-            return False
+            logger.info("  找到 '工作台', 点击")
+            self._safe_click_element(tab, "工作台")
+            time.sleep(2)
+            return True
         except Exception as e:
             logger.error(f"  工作台导航异常: {e}")
             return False
