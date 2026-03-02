@@ -93,10 +93,32 @@ class CheckinAutomation:
                 return result
             d = self.dm.d
 
-            # Step 3: Check if already on checkin page
+            # Step 3: Detect current page and navigate accordingly
             logger.info("[3/7] 检测当前页面状态")
-            if self._is_on_checkin_page(d):
+            page = self._detect_page(d)
+
+            if page == "checkin":
                 logger.info("[3/7] 已在打卡页面, 跳过导航")
+
+            elif page == "workbench":
+                logger.info("[3/7] 已在工作台, 跳过打开企业微信")
+                # Click 打卡 entry
+                logger.info("[5/7] 查找并点击打卡入口")
+                if not self._click_checkin_entry(d):
+                    result["message"] = "未找到打卡入口"
+                    result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                    logger.error(f"[5/7] {result['message']}")
+                    return result
+                logger.info("[5/7] 已点击打卡入口, 等待页面加载")
+                self._random_sleep(2.0, 3.0)
+
+                logger.info("[6/7] 等待打卡页面加载")
+                if not self._wait_for_checkin_page(d):
+                    result["message"] = "打卡页面加载失败"
+                    result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                    logger.error(f"[6/7] {result['message']}")
+                    return result
+
             else:
                 # Open WeCom
                 logger.info("[3/7] 打开企业微信")
@@ -108,9 +130,12 @@ class CheckinAutomation:
                 logger.info("[3/7] 企业微信已打开")
                 self._random_sleep(1.5, 2.5)
 
-                # Check again after opening — might land on checkin page
-                if self._is_on_checkin_page(d):
+                # Re-detect after opening
+                page = self._detect_page(d)
+                if page == "checkin":
                     logger.info("[4/7] 打开后已在打卡页面, 跳过导航")
+                elif page == "workbench":
+                    logger.info("[4/7] 打开后已在工作台")
                 else:
                     # Navigate to 工作台
                     logger.info("[4/7] 点击工作台 Tab")
@@ -122,7 +147,7 @@ class CheckinAutomation:
                     logger.info("[4/7] 已进入工作台")
                     self._random_sleep(1.0, 2.0)
 
-                    # Click 打卡 entry
+                if page != "checkin":
                     logger.info("[5/7] 查找并点击打卡入口")
                     if not self._click_checkin_entry(d):
                         result["message"] = "未找到打卡入口"
@@ -132,7 +157,6 @@ class CheckinAutomation:
                     logger.info("[5/7] 已点击打卡入口, 等待页面加载")
                     self._random_sleep(2.0, 3.0)
 
-                    # Wait for checkin page to load
                     logger.info("[6/7] 等待打卡页面加载")
                     if not self._wait_for_checkin_page(d):
                         result["message"] = "打卡页面加载失败"
@@ -237,18 +261,32 @@ class CheckinAutomation:
 
     # --- Page detection ---
 
-    def _is_on_checkin_page(self, d) -> bool:
-        """Check if we're already on the WeCom checkin page."""
-        indicators = [
-            "上班打卡", "下班打卡", "迟到打卡", "早退打卡",
-            "加班下班", "更新打卡", "已打卡", "打卡范围",
-            "上下班打卡", "外出打卡",
-        ]
-        for text in indicators:
+    CHECKIN_PAGE_INDICATORS = [
+        "上班打卡", "下班打卡", "迟到打卡", "早退打卡",
+        "加班下班", "更新打卡", "已打卡", "打卡范围",
+        "上下班打卡", "外出打卡",
+    ]
+
+    WORKBENCH_INDICATORS = ["审批", "日报", "汇报", "考勤"]
+
+    def _detect_page(self, d) -> str:
+        """Detect current page: 'checkin', 'workbench', or 'other'."""
+        for text in self.CHECKIN_PAGE_INDICATORS:
             if d(textContains=text).exists(timeout=0.5):
-                logger.info(f"  检测到打卡页面 ('{text}')")
-                return True
-        return False
+                logger.info(f"  当前页面: 打卡页 ('{text}')")
+                return "checkin"
+
+        # Check workbench: has 打卡 entry or other workbench-specific items
+        if d(text="打卡").exists(timeout=0.5):
+            logger.info("  当前页面: 工作台 ('打卡')")
+            return "workbench"
+        for text in self.WORKBENCH_INDICATORS:
+            if d(text=text).exists(timeout=0.3):
+                logger.info(f"  当前页面: 工作台 ('{text}')")
+                return "workbench"
+
+        logger.info("  当前页面: 其他")
+        return "other"
 
     # --- App launch ---
 
