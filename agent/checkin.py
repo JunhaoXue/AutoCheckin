@@ -93,16 +93,34 @@ class CheckinAutomation:
                 return result
             d = self.dm.d
 
-            # Step 3: Detect current page and navigate accordingly
-            logger.info("[3/7] 检测当前页面状态")
+            # Step 3: Open WeCom
+            logger.info("[3/7] 打开企业微信")
+            if not self._open_wecom(d):
+                result["message"] = "打开企业微信失败"
+                result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                logger.error(f"[3/7] {result['message']}")
+                return result
+            logger.info("[3/7] 企业微信已打开")
+
+            # Step 4: Detect current page and navigate
+            logger.info("[4/7] 检测当前页面状态")
             page = self._detect_page(d)
 
             if page == "checkin":
-                logger.info("[3/7] 已在打卡页面, 跳过导航")
+                logger.info("[4/7] 已在打卡页面, 跳过导航")
+            else:
+                if page != "workbench":
+                    logger.info("[4/7] 点击工作台 Tab")
+                    if not self._go_to_workbench(d):
+                        result["message"] = "无法切换到工作台"
+                        result["screenshot_b64"] = self.dm.take_screenshot_b64()
+                        logger.error(f"[4/7] {result['message']}")
+                        return result
+                    logger.info("[4/7] 已进入工作台")
+                    self._random_sleep(1.0, 2.0)
+                else:
+                    logger.info("[4/7] 已在工作台, 跳过")
 
-            elif page == "workbench":
-                logger.info("[3/7] 已在工作台, 跳过打开企业微信")
-                # Click 打卡 entry
                 logger.info("[5/7] 查找并点击打卡入口")
                 if not self._click_checkin_entry(d):
                     result["message"] = "未找到打卡入口"
@@ -118,51 +136,6 @@ class CheckinAutomation:
                     result["screenshot_b64"] = self.dm.take_screenshot_b64()
                     logger.error(f"[6/7] {result['message']}")
                     return result
-
-            else:
-                # Open WeCom
-                logger.info("[3/7] 打开企业微信")
-                if not self._open_wecom(d):
-                    result["message"] = "打开企业微信失败"
-                    result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                    logger.error(f"[3/7] {result['message']}")
-                    return result
-                logger.info("[3/7] 企业微信已打开")
-                self._random_sleep(1.5, 2.5)
-
-                # Re-detect after opening
-                page = self._detect_page(d)
-                if page == "checkin":
-                    logger.info("[4/7] 打开后已在打卡页面, 跳过导航")
-                elif page == "workbench":
-                    logger.info("[4/7] 打开后已在工作台")
-                else:
-                    # Navigate to 工作台
-                    logger.info("[4/7] 点击工作台 Tab")
-                    if not self._go_to_workbench(d):
-                        result["message"] = "无法切换到工作台"
-                        result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                        logger.error(f"[4/7] {result['message']}")
-                        return result
-                    logger.info("[4/7] 已进入工作台")
-                    self._random_sleep(1.0, 2.0)
-
-                if page != "checkin":
-                    logger.info("[5/7] 查找并点击打卡入口")
-                    if not self._click_checkin_entry(d):
-                        result["message"] = "未找到打卡入口"
-                        result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                        logger.error(f"[5/7] {result['message']}")
-                        return result
-                    logger.info("[5/7] 已点击打卡入口, 等待页面加载")
-                    self._random_sleep(2.0, 3.0)
-
-                    logger.info("[6/7] 等待打卡页面加载")
-                    if not self._wait_for_checkin_page(d):
-                        result["message"] = "打卡页面加载失败"
-                        result["screenshot_b64"] = self.dm.take_screenshot_b64()
-                        logger.error(f"[6/7] {result['message']}")
-                        return result
             self._random_sleep(0.5, 1.0)
 
             logger.info(f"[6/7] 查找打卡按钮 (类型: {checkin_type})")
