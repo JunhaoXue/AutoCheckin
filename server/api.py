@@ -85,12 +85,19 @@ async def send_wake_sms():
 
 @router.post("/api/checkin")
 async def trigger_checkin(request: Request):
-    """Manually trigger a check-in."""
+    """Manually trigger a check-in. Sends SMS to wake screen first."""
     body = await request.json()
     checkin_type = body.get("checkin_type", "auto")
 
     if not manager.phone_online:
         return JSONResponse(status_code=503, content={"error": "手机未连接"})
+
+    # Send SMS to wake screen before sending checkin command
+    sms_result = sms_service.send_wake_sms()
+    if sms_result["success"]:
+        logger.info("Wake SMS sent, checkin command will follow")
+    else:
+        logger.warning(f"Wake SMS failed: {sms_result.get('error')}, proceeding anyway")
 
     msg_id = await manager.send_to_phone("checkin", {"checkin_type": checkin_type})
     if not msg_id:

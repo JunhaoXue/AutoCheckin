@@ -10,7 +10,6 @@ import subprocess
 import time
 import random
 import logging
-import urllib.request
 from datetime import datetime
 
 logger = logging.getLogger("agent.checkin")
@@ -19,10 +18,8 @@ WECOM_PACKAGE = "com.tencent.wework"
 
 
 class CheckinAutomation:
-    def __init__(self, device_manager, server_url: str = ""):
+    def __init__(self, device_manager):
         self.dm = device_manager
-        # http://host:port base URL for server API
-        self.server_url = server_url.rstrip("/") if server_url else ""
 
     # --- Safe click: u2 first, adb fallback ---
 
@@ -178,21 +175,10 @@ class CheckinAutomation:
     # --- Screen ---
 
     def _ensure_screen_on(self):
-        """Wake screen by sending SMS (via server API) + ADB POWER key."""
-        if self.server_url:
-            logger.info("  发送短信唤醒屏幕")
-            try:
-                req = urllib.request.Request(
-                    f"{self.server_url}/api/sms/wake",
-                    method="POST",
-                    headers={"Content-Type": "application/json"},
-                    data=b"{}"
-                )
-                urllib.request.urlopen(req, timeout=10)
-                logger.info("  短信已发送, 等待 5s")
-                time.sleep(5)
-            except Exception as e:
-                logger.warning(f"  短信发送失败: {e}")
+        """Wake screen with ADB keys + swipe. SMS is sent by server before command."""
+        # Wait for SMS to arrive and wake screen (server sends SMS before checkin command)
+        logger.info("  等待短信唤醒 (5s)")
+        time.sleep(5)
 
         # POWER(26) as backup
         logger.info("  POWER(26)")
