@@ -201,7 +201,7 @@ class Agent:
         logger.info(f"Scheduled: morning={morning}, evening={evening}")
 
     async def _scheduled_checkin(self, checkin_type: str):
-        """Execute a scheduled check-in with random delay."""
+        """Request server to trigger a check-in (server sends SMS first)."""
         schedule = self.config.get("schedule", {})
 
         # Check if we should skip
@@ -224,22 +224,12 @@ class Agent:
             await self.ws.send_error("WIFI_MISMATCH", msg, f"checkin_{checkin_type}")
             return
 
-        # Execute check-in
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, self.checkin.perform_checkin, checkin_type
-        )
-
-        # Update local state
-        key = "morning" if "上班" in checkin_type else "evening"
-        self._today_checkins[key] = {
-            "done": result["success"],
-            "time": result["checkin_time"],
-            "message": result["message"],
-        }
-
-        # Report to server
-        await self.ws.send_checkin_result(result, trigger="scheduled")
-        logger.info(f"Scheduled {checkin_type} check-in done: {result['success']}")
+        # Request server to trigger checkin (server sends SMS → then sends checkin command back)
+        logger.info(f"Requesting server to trigger {checkin_type} check-in")
+        await self.ws.send({
+            "type": "request_checkin",
+            "data": {"checkin_type": checkin_type},
+        })
 
     # --- Command handling ---
 

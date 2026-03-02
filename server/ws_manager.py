@@ -123,6 +123,8 @@ class WSManager:
             await self._handle_error(msg)
         elif msg_type == "log":
             await self._handle_log(msg)
+        elif msg_type == "request_checkin":
+            await self._handle_request_checkin(data)
         else:
             logger.warning(f"Unknown message type from phone: {msg_type}")
 
@@ -251,6 +253,21 @@ class WSManager:
             "type": "log_update",
             "data": {**data, "ts": ts}
         })
+
+    async def _handle_request_checkin(self, data: dict):
+        """Phone agent requests a checkin — send SMS first, then checkin command."""
+        from sms import sms_service
+
+        checkin_type = data.get("checkin_type", "auto")
+        logger.info(f"Scheduled checkin requested: {checkin_type}, sending SMS first")
+
+        sms_result = sms_service.send_wake_sms()
+        if sms_result["success"]:
+            logger.info("Wake SMS sent for scheduled checkin")
+        else:
+            logger.warning(f"Wake SMS failed: {sms_result.get('error')}, proceeding anyway")
+
+        await self.send_to_phone("checkin", {"checkin_type": checkin_type})
 
     # --- Helpers ---
 
