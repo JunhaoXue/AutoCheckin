@@ -55,8 +55,44 @@
             font-size: 16px;
             color: #5f6368;
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
         }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            margin-bottom: 28px;
+            border-bottom: 1px solid #e8eaed;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 0;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: #5f6368;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            font-family: inherit;
+            transition: color 0.2s, border-color 0.2s;
+        }
+
+        .tab.active {
+            color: #1a73e8;
+            border-bottom-color: #1a73e8;
+        }
+
+        .tab:hover:not(.active) {
+            color: #3c4043;
+            background: #f8f9fa;
+        }
+
+        /* Panels */
+        .panel { display: none; }
+        .panel.active { display: block; }
 
         /* Material floating label input */
         .field {
@@ -205,22 +241,41 @@
                 <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
             </div>
             <h1>AutoCheckin</h1>
-            <p class="subtitle">使用手机号登录</p>
+            <p class="subtitle">登录以继续</p>
 
-            <div class="phone-row">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('password')">密码登录</button>
+                <button class="tab" onclick="switchTab('sms')">短信登录</button>
+            </div>
+
+            <!-- Password panel -->
+            <div id="panel-password" class="panel active">
                 <div class="field">
-                    <input type="tel" id="phone" maxlength="11" placeholder=" " autocomplete="tel">
-                    <label for="phone">手机号</label>
+                    <input type="tel" id="pwd-phone" maxlength="11" placeholder=" " autocomplete="tel">
+                    <label for="pwd-phone">手机号</label>
                 </div>
-                <button id="btn-send-code" class="btn-code" onclick="sendCode()">获取验证码</button>
+                <div class="field">
+                    <input type="password" id="pwd-password" placeholder=" " autocomplete="current-password">
+                    <label for="pwd-password">密码</label>
+                </div>
+                <button class="btn-login" onclick="loginPassword()">登录</button>
             </div>
 
-            <div class="field" style="margin-top: 24px;">
-                <input type="tel" id="code" maxlength="6" placeholder=" " autocomplete="one-time-code">
-                <label for="code">验证码</label>
+            <!-- SMS panel -->
+            <div id="panel-sms" class="panel">
+                <div class="phone-row">
+                    <div class="field">
+                        <input type="tel" id="sms-phone" maxlength="11" placeholder=" " autocomplete="tel">
+                        <label for="sms-phone">手机号</label>
+                    </div>
+                    <button id="btn-send-code" class="btn-code" onclick="sendCode()">获取验证码</button>
+                </div>
+                <div class="field" style="margin-top: 24px;">
+                    <input type="tel" id="sms-code" maxlength="6" placeholder=" " autocomplete="one-time-code">
+                    <label for="sms-code">验证码</label>
+                </div>
+                <button class="btn-login" onclick="loginSMS()">登录</button>
             </div>
-
-            <button id="btn-login" class="btn-login" onclick="login()">登录</button>
 
             <div id="login-msg" class="msg"></div>
         </div>
@@ -228,7 +283,19 @@
     </div>
 
     <script>
-    let countdown = 0;
+    function switchTab(mode) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        document.getElementById('login-msg').textContent = '';
+
+        if (mode === 'sms') {
+            document.querySelectorAll('.tab')[1].classList.add('active');
+            document.getElementById('panel-sms').classList.add('active');
+        } else {
+            document.querySelectorAll('.tab')[0].classList.add('active');
+            document.getElementById('panel-password').classList.add('active');
+        }
+    }
 
     function showMsg(text, isError) {
         const el = document.getElementById('login-msg');
@@ -236,8 +303,45 @@
         el.className = 'msg ' + (isError ? 'error' : 'success');
     }
 
+    // --- Password login ---
+    async function loginPassword() {
+        const phone = document.getElementById('pwd-phone').value.trim();
+        const password = document.getElementById('pwd-password').value;
+        if (!phone || !password) {
+            showMsg('请填写手机号和密码', true);
+            return;
+        }
+
+        const btn = document.querySelector('#panel-password .btn-login');
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phone, password})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                window.location.href = '/';
+            } else {
+                showMsg(data.error || '登录失败', true);
+                btn.disabled = false;
+                btn.textContent = '登录';
+            }
+        } catch (e) {
+            showMsg('网络错误，请重试', true);
+            btn.disabled = false;
+            btn.textContent = '登录';
+        }
+    }
+
+    // --- SMS login ---
+    let countdown = 0;
+
     async function sendCode() {
-        const phone = document.getElementById('phone').value.trim();
+        const phone = document.getElementById('sms-phone').value.trim();
         if (!/^1\d{10}$/.test(phone)) {
             showMsg('请输入正确的11位手机号', true);
             return;
@@ -256,7 +360,7 @@
             if (res.ok) {
                 showMsg('验证码已发送，请查看短信', false);
                 startCountdown(btn);
-                document.getElementById('code').focus();
+                document.getElementById('sms-code').focus();
             } else {
                 showMsg(data.error || '发送失败', true);
                 btn.disabled = false;
@@ -282,15 +386,15 @@
         }, 1000);
     }
 
-    async function login() {
-        const phone = document.getElementById('phone').value.trim();
-        const code = document.getElementById('code').value.trim();
+    async function loginSMS() {
+        const phone = document.getElementById('sms-phone').value.trim();
+        const code = document.getElementById('sms-code').value.trim();
         if (!phone || !code) {
             showMsg('请填写手机号和验证码', true);
             return;
         }
 
-        const btn = document.getElementById('btn-login');
+        const btn = document.querySelector('#panel-sms .btn-login');
         btn.disabled = true;
         btn.textContent = '登录中...';
 
@@ -315,11 +419,12 @@
         }
     }
 
-    document.getElementById('code').addEventListener('keydown', e => {
-        if (e.key === 'Enter') login();
+    // Enter key
+    document.getElementById('pwd-password').addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginPassword();
     });
-    document.getElementById('phone').addEventListener('keydown', e => {
-        if (e.key === 'Enter') sendCode();
+    document.getElementById('sms-code').addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginSMS();
     });
     </script>
 </body>

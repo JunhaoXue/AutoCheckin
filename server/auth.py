@@ -14,6 +14,9 @@ logger = logging.getLogger("autocheckin.auth")
 # Allowed phone numbers from env
 ALLOWED_PHONES = [p.strip() for p in os.getenv("AUTH_PHONES", "").split(",") if p.strip()]
 
+# Password from env
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
+
 CODE_EXPIRE_MINUTES = 5
 SESSION_EXPIRE_HOURS = 24
 
@@ -65,6 +68,23 @@ def verify_code(phone: str, code: str) -> str | None:
         "expires_at": datetime.utcnow() + timedelta(hours=SESSION_EXPIRE_HOURS),
     })
     logger.info(f"Login success: {phone}")
+    return token
+
+
+def verify_password(phone: str, password: str) -> str | None:
+    """Verify phone + password, return session token on success."""
+    if not is_phone_allowed(phone):
+        return None
+    if not AUTH_PASSWORD or password != AUTH_PASSWORD:
+        return None
+
+    token = secrets.token_hex(32)
+    _sessions.insert_one({
+        "token": token,
+        "phone": phone,
+        "expires_at": datetime.utcnow() + timedelta(hours=SESSION_EXPIRE_HOURS),
+    })
+    logger.info(f"Password login success: {phone}")
     return token
 
 

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from database import get_db
 from ws_manager import manager
 from sms import sms_service
-from auth import is_phone_allowed, generate_code, verify_code, check_session, remove_session
+from auth import is_phone_allowed, generate_code, verify_code, verify_password, check_session, remove_session
 
 logger = logging.getLogger("autocheckin.api")
 router = APIRouter()
@@ -51,17 +51,27 @@ async def send_login_code(request: Request):
 
 @router.post("/api/auth/login")
 async def login(request: Request):
-    """Verify code and create session."""
+    """Verify code or password and create session."""
     body = await request.json()
     phone = body.get("phone", "").strip()
     code = body.get("code", "").strip()
+    password = body.get("password", "").strip()
 
-    if not phone or not code:
-        return JSONResponse(status_code=400, content={"error": "请填写手机号和验证码"})
+    if not phone:
+        return JSONResponse(status_code=400, content={"error": "请填写手机号"})
 
-    token = verify_code(phone, code)
-    if not token:
-        return JSONResponse(status_code=401, content={"error": "验证码错误或已过期"})
+    # Password login
+    if password:
+        token = verify_password(phone, password)
+        if not token:
+            return JSONResponse(status_code=401, content={"error": "手机号或密码错误"})
+    # SMS code login
+    elif code:
+        token = verify_code(phone, code)
+        if not token:
+            return JSONResponse(status_code=401, content={"error": "验证码错误或已过期"})
+    else:
+        return JSONResponse(status_code=400, content={"error": "请填写验证码或密码"})
 
     response = JSONResponse(content={"message": "登录成功"})
     response.set_cookie(
