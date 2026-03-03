@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from database import init_db
 from api import router
+from auth import check_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,7 +44,15 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/")
 async def index(request: Request):
+    token = request.cookies.get("session_token", "")
+    if not check_session(token):
+        return templates.TemplateResponse("login.html", {"request": request})
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/login")
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 if __name__ == "__main__":

@@ -4,16 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoCheckin - 企业微信自动打卡</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&family=Noto+Sans+SC:wght@400;500&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <!-- Header -->
         <header>
-            <h1>企业微信自动打卡</h1>
-            <div id="connection-status" class="status-badge offline">
-                <span class="dot"></span>
-                <span id="conn-text">手机离线</span>
+            <h1>AutoCheckin</h1>
+            <div class="header-actions">
+                <div id="connection-status" class="status-badge offline">
+                    <span class="dot"></span>
+                    <span id="conn-text">手机离线</span>
+                </div>
+                <button onclick="logout()" class="btn-logout">退出</button>
             </div>
         </header>
 

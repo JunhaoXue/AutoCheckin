@@ -1,3 +1,12 @@
+// --- Auth: redirect to login on 401 ---
+function checkAuth(res) {
+    if (res.status === 401) {
+        window.location.href = '/login';
+        return false;
+    }
+    return true;
+}
+
 // --- WebSocket connection ---
 let ws = null;
 let reconnectTimer = null;
@@ -164,6 +173,7 @@ async function triggerCheckin(type) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({checkin_type: type})
         });
+        if (!checkAuth(res)) return;
         const data = await res.json();
         if (res.ok) {
             showActionMsg(data.message);
@@ -181,6 +191,7 @@ async function requestScreenshot() {
     showActionMsg('正在请求截图...');
     try {
         const res = await fetch('/api/screenshot', {method: 'POST'});
+        if (!checkAuth(res)) return;
         const data = await res.json();
         if (res.ok) {
             showActionMsg('截图命令已发送，等待返回...');
@@ -207,6 +218,7 @@ async function saveSchedule() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(config)
         });
+        if (!checkAuth(res)) return;
         const data = await res.json();
         showActionMsg(data.message || '已保存');
         addLog('更新打卡配置', 'info');
@@ -219,6 +231,7 @@ async function loadHistory() {
     const days = document.getElementById('history-days').value;
     try {
         const res = await fetch(`/api/history?days=${days}`);
+        if (!checkAuth(res)) return;
         const data = await res.json();
         const tbody = document.getElementById('history-body');
         tbody.innerHTML = '';
@@ -244,6 +257,7 @@ async function loadHistory() {
 async function loadSchedule() {
     try {
         const res = await fetch('/api/schedule');
+        if (!checkAuth(res)) return;
         const data = await res.json();
         if (data.morning_time) document.getElementById('cfg-morning').value = data.morning_time;
         if (data.evening_time) document.getElementById('cfg-evening').value = data.evening_time;
@@ -301,6 +315,7 @@ function handleLogUpdate(data) {
 async function loadLogs() {
     try {
         const res = await fetch('/api/logs?limit=100');
+        if (!checkAuth(res)) return;
         const data = await res.json();
         (data.logs || []).forEach(log => {
             handleLogUpdate(log);
@@ -308,6 +323,11 @@ async function loadLogs() {
     } catch (e) {
         console.error('Load logs error:', e);
     }
+}
+
+async function logout() {
+    await fetch('/api/auth/logout', {method: 'POST'});
+    window.location.href = '/login';
 }
 
 // --- Init ---

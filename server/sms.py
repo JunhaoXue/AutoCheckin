@@ -34,6 +34,32 @@ class SMSService:
         else:
             logger.info("SMS service disabled (missing env vars)")
 
+    def send_code_sms(self, phone: str, code: str) -> dict:
+        """Send a verification code SMS to a specific phone number."""
+        if not phone:
+            return {"success": False, "error": "no phone number"}
+        if not self.client:
+            return {"success": False, "error": "SMS not configured"}
+
+        try:
+            request = dysmsapi_models.SendSmsRequest(
+                sign_name=self.sign_name,
+                template_code=self.template_code,
+                phone_numbers=phone,
+                template_param=json.dumps({"code": code})
+            )
+            response = self.client.send_sms_with_options(request, util_models.RuntimeOptions())
+
+            if response.body.code == "OK":
+                logger.info(f"Login code SMS sent to {phone}")
+                return {"success": True}
+            else:
+                logger.warning(f"SMS failed: {response.body.code} - {response.body.message}")
+                return {"success": False, "error": response.body.message}
+        except Exception as e:
+            logger.error(f"SMS exception: {e}")
+            return {"success": False, "error": str(e)}
+
     def send_wake_sms(self, phone: str = None) -> dict:
         """Send an SMS to wake the phone screen."""
         phone = phone or self.phone_number

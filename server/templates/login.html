@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - AutoCheckin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Google Sans', 'Noto Sans SC', -apple-system, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-wrapper {
+            width: 100%;
+            max-width: 420px;
+            padding: 16px;
+        }
+
+        .login-card {
+            background: #fff;
+            border-radius: 28px;
+            padding: 48px 40px 36px;
+            box-shadow: 0 1px 3px rgba(60,64,67,0.15), 0 4px 8px rgba(60,64,67,0.08);
+        }
+
+        .logo {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 24px;
+            background: #1a73e8;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo svg { width: 28px; height: 28px; fill: #fff; }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 400;
+            color: #202124;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: #5f6368;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        /* Material floating label input */
+        .field {
+            position: relative;
+            margin-bottom: 24px;
+        }
+
+        .field input {
+            width: 100%;
+            height: 56px;
+            padding: 20px 16px 6px;
+            font-size: 16px;
+            font-family: inherit;
+            color: #202124;
+            background: transparent;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .field input:focus {
+            border-color: #1a73e8;
+            border-width: 2px;
+            padding: 19px 15px 5px;
+        }
+
+        .field label {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 16px;
+            color: #5f6368;
+            pointer-events: none;
+            transition: all 0.2s;
+            background: #fff;
+            padding: 0 4px;
+        }
+
+        .field input:focus + label,
+        .field input:not(:placeholder-shown) + label {
+            top: 0;
+            font-size: 12px;
+            color: #1a73e8;
+        }
+
+        .field input:not(:focus):not(:placeholder-shown) + label {
+            color: #5f6368;
+        }
+
+        /* Phone row */
+        .phone-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .phone-row .field { flex: 1; margin-bottom: 0; }
+
+        .btn-code {
+            height: 56px;
+            padding: 0 16px;
+            white-space: nowrap;
+            font-size: 14px;
+            font-family: inherit;
+            font-weight: 500;
+            color: #1a73e8;
+            background: transparent;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            min-width: 108px;
+        }
+
+        .btn-code:hover:not(:disabled) {
+            background: #e8f0fe;
+            border-color: #d2e3fc;
+        }
+
+        .btn-code:disabled {
+            color: #80868b;
+            cursor: default;
+        }
+
+        /* Login button */
+        .btn-login {
+            width: 100%;
+            height: 48px;
+            margin-top: 8px;
+            font-size: 15px;
+            font-family: inherit;
+            font-weight: 500;
+            color: #fff;
+            background: #1a73e8;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+            letter-spacing: 0.25px;
+        }
+
+        .btn-login:hover:not(:disabled) {
+            background: #1765cc;
+            box-shadow: 0 1px 3px rgba(26,115,232,0.4);
+        }
+
+        .btn-login:disabled {
+            background: #94bfff;
+            cursor: default;
+        }
+
+        /* Message */
+        .msg {
+            text-align: center;
+            font-size: 13px;
+            margin-top: 16px;
+            min-height: 20px;
+            transition: color 0.2s;
+        }
+
+        .msg.error { color: #d93025; }
+        .msg.success { color: #1e8e3e; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 12px;
+            color: #80868b;
+        }
+
+        @media (max-width: 440px) {
+            .login-card { padding: 36px 24px 28px; border-radius: 20px; }
+            .phone-row { flex-direction: column; gap: 16px; }
+            .phone-row .field { margin-bottom: 0; }
+            .btn-code { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="logo">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <h1>AutoCheckin</h1>
+            <p class="subtitle">使用手机号登录</p>
+
+            <div class="phone-row">
+                <div class="field">
+                    <input type="tel" id="phone" maxlength="11" placeholder=" " autocomplete="tel">
+                    <label for="phone">手机号</label>
+                </div>
+                <button id="btn-send-code" class="btn-code" onclick="sendCode()">获取验证码</button>
+            </div>
+
+            <div class="field" style="margin-top: 24px;">
+                <input type="tel" id="code" maxlength="6" placeholder=" " autocomplete="one-time-code">
+                <label for="code">验证码</label>
+            </div>
+
+            <button id="btn-login" class="btn-login" onclick="login()">登录</button>
+
+            <div id="login-msg" class="msg"></div>
+        </div>
+        <div class="footer">AutoCheckin &middot; 企业微信自动打卡</div>
+    </div>
+
+    <script>
+    let countdown = 0;
+
+    function showMsg(text, isError) {
+        const el = document.getElementById('login-msg');
+        el.textContent = text;
+        el.className = 'msg ' + (isError ? 'error' : 'success');
+    }
+
+    async function sendCode() {
+        const phone = document.getElementById('phone').value.trim();
+        if (!/^1\d{10}$/.test(phone)) {
+            showMsg('请输入正确的11位手机号', true);
+            return;
+        }
+
+        const btn = document.getElementById('btn-send-code');
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/api/auth/send-code', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phone})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showMsg('验证码已发送，请查看短信', false);
+                startCountdown(btn);
+                document.getElementById('code').focus();
+            } else {
+                showMsg(data.error || '发送失败', true);
+                btn.disabled = false;
+            }
+        } catch (e) {
+            showMsg('网络错误，请重试', true);
+            btn.disabled = false;
+        }
+    }
+
+    function startCountdown(btn) {
+        countdown = 60;
+        btn.textContent = countdown + 's';
+        const timer = setInterval(() => {
+            countdown--;
+            if (countdown <= 0) {
+                clearInterval(timer);
+                btn.textContent = '获取验证码';
+                btn.disabled = false;
+            } else {
+                btn.textContent = countdown + 's';
+            }
+        }, 1000);
+    }
+
+    async function login() {
+        const phone = document.getElementById('phone').value.trim();
+        const code = document.getElementById('code').value.trim();
+        if (!phone || !code) {
+            showMsg('请填写手机号和验证码', true);
+            return;
+        }
+
+        const btn = document.getElementById('btn-login');
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phone, code})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                window.location.href = '/';
+            } else {
+                showMsg(data.error || '登录失败', true);
+                btn.disabled = false;
+                btn.textContent = '登录';
+            }
+        } catch (e) {
+            showMsg('网络错误，请重试', true);
+            btn.disabled = false;
+            btn.textContent = '登录';
+        }
+    }
+
+    document.getElementById('code').addEventListener('keydown', e => {
+        if (e.key === 'Enter') login();
+    });
+    document.getElementById('phone').addEventListener('keydown', e => {
+        if (e.key === 'Enter') sendCode();
+    });
+    </script>
+</body>
+</html>

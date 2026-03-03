@@ -1,29 +1,103 @@
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request, Query, Cookie
 from fastapi.responses import JSONResponse
 
 from database import get_db
 from ws_manager import manager
 from sms import sms_service
+from auth import is_phone_allowed, generate_code, verify_code, check_session, remove_session
 
 logger = logging.getLogger("autocheckin.api")
 router = APIRouter()
 
 
-# --- REST API ---
+# --- Auth helper ---
+
+def require_auth(request: Request):
+    """Check session cookie, return phone or raise 401."""
+    token = request.cookies.get("session_token", "")
+    phone = check_session(token)
+    if not phone:
+        return None
+    return phone
+
+
+def auth_or_401(request: Request):
+    """Return 401 JSONResponse if not authenticated."""
+    if not require_auth(request):
+        return JSONResponse(status_code=401, content={"error": "未登录"})
+    return None
+
+
+# --- Auth API (no auth required) ---
+
+@router.post("/api/auth/send-code")
+async def send_login_code(request: Request):
+    """Send SMS verification code for login."""
+    body = await request.json()
+    phone = body.get("phone", "").strip()
+
+    if not phone or not is_phone_allowed(phone):
+        return JSONResponse(status_code=403, content={"error": "该手机号不允许登录"})
+
+    code = generate_code(phone)
+    result = sms_service.send_code_sms(phone, code)
+    if result["success"]:
+        return {"message": "验证码已发送"}
+    return JSONResponse(status_code=500, content={"error": "短信发送失败"})
+
+
+@router.post("/api/auth/login")
+async def login(request: Request):
+    """Verify code and create session."""
+    body = await request.json()
+    phone = body.get("phone", "").strip()
+    code = body.get("code", "").strip()
+
+    if not phone or not code:
+        return JSONResponse(status_code=400, content={"error": "请填写手机号和验证码"})
+
+    token = verify_code(phone, code)
+    if not token:
+        return JSONResponse(status_code=401, content={"error": "验证码错误或已过期"})
+
+    response = JSONResponse(content={"message": "登录成功"})
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        max_age=86400,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+@router.post("/api/auth/logout")
+async def logout(request: Request):
+    """Clear session."""
+    token = request.cookies.get("session_token", "")
+    remove_session(token)
+    response = JSONResponse(content={"message": "已退出"})
+    response.delete_cookie("session_token")
+    return response
+
+
+# --- Protected REST API ---
 
 @router.get("/api/status")
-async def get_status():
+async def get_status(request: Request):
     """Get current device and check-in status."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     db = await get_db()
     try:
-        # Get schedule config
         cursor = await db.execute("SELECT * FROM schedule_config WHERE id = 1")
         schedule = dict(await cursor.fetchone() or {})
 
-        # Get today's checkin logs
         today = datetime.now().strftime("%Y-%m-%d")
         cursor = await db.execute(
             "SELECT * FROM checkin_logs WHERE checkin_time LIKE ? ORDER BY checkin_time DESC",
@@ -44,8 +118,12 @@ async def get_status():
 
 
 @router.get("/api/history")
-async def get_history(days: int = Query(default=7, ge=1, le=90)):
+async def get_history(request: Request, days: int = Query(default=7, ge=1, le=90)):
     """Get check-in history for the past N days."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     db = await get_db()
     try:
         since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -60,8 +138,12 @@ async def get_history(days: int = Query(default=7, ge=1, le=90)):
 
 
 @router.get("/api/logs")
-async def get_logs(limit: int = Query(default=200, ge=1, le=1000)):
+async def get_logs(request: Request, limit: int = Query(default=200, ge=1, le=1000)):
     """Get recent agent logs."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -75,8 +157,12 @@ async def get_logs(limit: int = Query(default=200, ge=1, le=1000)):
 
 
 @router.post("/api/sms/wake")
-async def send_wake_sms():
+async def send_wake_sms(request: Request):
     """Send SMS to wake the phone screen."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     result = sms_service.send_wake_sms()
     if result["success"]:
         return {"message": "短信已发送"}
@@ -86,13 +172,16 @@ async def send_wake_sms():
 @router.post("/api/checkin")
 async def trigger_checkin(request: Request):
     """Manually trigger a check-in. Sends SMS to wake screen first."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     body = await request.json()
     checkin_type = body.get("checkin_type", "auto")
 
     if not manager.phone_online:
         return JSONResponse(status_code=503, content={"error": "手机未连接"})
 
-    # Send SMS to wake screen before sending checkin command
     sms_result = sms_service.send_wake_sms()
     if sms_result["success"]:
         logger.info("Wake SMS sent, checkin command will follow")
@@ -107,8 +196,12 @@ async def trigger_checkin(request: Request):
 
 
 @router.post("/api/screenshot")
-async def request_screenshot():
+async def request_screenshot(request: Request):
     """Request a screenshot from the phone."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     if not manager.phone_online:
         return JSONResponse(status_code=503, content={"error": "手机未连接"})
 
@@ -120,8 +213,12 @@ async def request_screenshot():
 
 
 @router.get("/api/schedule")
-async def get_schedule():
+async def get_schedule(request: Request):
     """Get current schedule config."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM schedule_config WHERE id = 1")
@@ -134,6 +231,10 @@ async def get_schedule():
 @router.put("/api/schedule")
 async def update_schedule(request: Request):
     """Update schedule config and push to phone."""
+    err = auth_or_401(request)
+    if err:
+        return err
+
     body = await request.json()
 
     db = await get_db()
@@ -153,7 +254,6 @@ async def update_schedule(request: Request):
     finally:
         await db.close()
 
-    # Push to phone if online
     if manager.phone_online:
         await manager.send_to_phone("update_schedule", body)
 
@@ -164,10 +264,8 @@ async def update_schedule(request: Request):
 
 @router.websocket("/ws/phone")
 async def ws_phone(ws: WebSocket):
-    """WebSocket endpoint for phone agent."""
-    # Simple token auth
+    """WebSocket endpoint for phone agent (no auth required)."""
     token = ws.query_params.get("token", "")
-    # Token validation can be added here
     await manager.connect_phone(ws)
     try:
         while True:
@@ -182,11 +280,15 @@ async def ws_phone(ws: WebSocket):
 
 @router.websocket("/ws/dashboard")
 async def ws_dashboard(ws: WebSocket):
-    """WebSocket endpoint for browser dashboard."""
+    """WebSocket endpoint for browser dashboard (auth via cookie)."""
+    token = ws.cookies.get("session_token", "")
+    if not check_session(token):
+        await ws.close(code=4001, reason="未登录")
+        return
+
     await manager.connect_browser(ws)
     try:
         while True:
-            # Browser can send commands too
             raw = await ws.receive_text()
             import json
             try:

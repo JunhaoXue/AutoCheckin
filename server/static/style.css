@@ -1,3 +1,5 @@
+/* === Google Material Design 3 Style === */
+
 * {
     margin: 0;
     padding: 0;
@@ -5,87 +7,127 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #f0f2f5;
-    color: #333;
-    line-height: 1.6;
+    font-family: 'Google Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f8f9fa;
+    color: #1f1f1f;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
 }
 
 .container {
-    max-width: 600px;
+    max-width: 640px;
     margin: 0 auto;
-    padding: 16px;
+    padding: 12px;
 }
 
+/* Header */
 header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
-    padding: 16px;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 14px 20px;
     background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 2px 6px rgba(60,64,67,0.05);
 }
 
 header h1 {
     font-size: 18px;
-    font-weight: 600;
+    font-weight: 500;
+    color: #1f1f1f;
+    flex-shrink: 1;
+    min-width: 0;
+    letter-spacing: -0.2px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btn-logout {
+    padding: 6px 16px;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    color: #5f6368;
+    background: transparent;
+    border: 1px solid #dadce0;
+    border-radius: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s, color 0.2s;
+}
+
+.btn-logout:hover {
+    background: #f1f3f4;
+    color: #d93025;
+    border-color: #d93025;
+}
+
+/* Status badge */
 .status-badge {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 12px;
+    padding: 5px 14px;
     border-radius: 20px;
     font-size: 13px;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .status-badge .dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    flex-shrink: 0;
 }
 
 .status-badge.online {
-    background: #e6f7e6;
-    color: #1a7f1a;
+    background: #e6f4ea;
+    color: #1e8e3e;
 }
 
 .status-badge.online .dot {
-    background: #1a7f1a;
+    background: #1e8e3e;
     animation: pulse 2s infinite;
 }
 
 .status-badge.offline {
-    background: #fde8e8;
-    color: #c53030;
+    background: #fce8e6;
+    color: #d93025;
 }
 
 .status-badge.offline .dot {
-    background: #c53030;
+    background: #d93025;
 }
 
 @keyframes pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: 0.3; }
 }
 
+/* Card */
 .card {
     background: #fff;
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 16px;
+    padding: 20px;
     margin-bottom: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 2px rgba(60,64,67,0.1), 0 2px 6px rgba(60,64,67,0.05);
 }
 
 .card h2 {
-    font-size: 15px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    color: #555;
+    font-size: 14px;
+    font-weight: 500;
+    color: #5f6368;
+    margin-bottom: 14px;
+    letter-spacing: 0.1px;
+    text-transform: uppercase;
 }
 
 /* Device Info */
@@ -98,18 +140,19 @@ header h1 {
 .info-item {
     display: flex;
     justify-content: space-between;
-    padding: 6px 10px;
+    padding: 8px 12px;
     background: #f8f9fa;
-    border-radius: 8px;
+    border-radius: 12px;
     font-size: 13px;
 }
 
 .info-item .label {
-    color: #888;
+    color: #80868b;
 }
 
 .info-item .value {
     font-weight: 500;
+    color: #3c4043;
 }
 
 /* Checkin Status */
@@ -121,9 +164,10 @@ header h1 {
 .checkin-item {
     flex: 1;
     text-align: center;
-    padding: 16px;
+    padding: 20px 12px;
     background: #f8f9fa;
-    border-radius: 12px;
+    border-radius: 16px;
+    transition: background 0.2s;
 }
 
 .checkin-icon {
@@ -133,34 +177,35 @@ header h1 {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 8px;
-    font-size: 24px;
-    background: #e0e0e0;
-    color: #999;
+    margin: 0 auto 10px;
+    font-size: 22px;
+    background: #e8eaed;
+    color: #9aa0a6;
 }
 
 .checkin-icon.success {
-    background: #d4edda;
-    color: #28a745;
+    background: #e6f4ea;
+    color: #1e8e3e;
 }
 
 .checkin-icon.fail {
-    background: #f8d7da;
-    color: #dc3545;
+    background: #fce8e6;
+    color: #d93025;
 }
 
 .checkin-label {
     font-size: 14px;
     font-weight: 500;
+    color: #3c4043;
     margin-bottom: 4px;
 }
 
 .checkin-time {
     font-size: 12px;
-    color: #888;
+    color: #80868b;
 }
 
-/* Actions */
+/* Buttons */
 .actions {
     display: flex;
     gap: 8px;
@@ -168,38 +213,50 @@ header h1 {
 
 .btn {
     flex: 1;
-    padding: 10px 16px;
+    padding: 12px 16px;
     border: none;
-    border-radius: 8px;
+    border-radius: 24px;
     font-size: 14px;
+    font-family: inherit;
     font-weight: 500;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: background 0.2s, box-shadow 0.2s;
+    letter-spacing: 0.15px;
 }
 
 .btn:active {
-    opacity: 0.7;
+    transform: scale(0.98);
 }
 
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none;
 }
 
 .btn-primary {
-    background: #1890ff;
+    background: #1a73e8;
     color: #fff;
 }
 
+.btn-primary:hover:not(:disabled) {
+    background: #1765cc;
+    box-shadow: 0 1px 3px rgba(26,115,232,0.3);
+}
+
 .btn-secondary {
-    background: #f0f2f5;
-    color: #333;
+    background: #e8f0fe;
+    color: #1a73e8;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #d2e3fc;
 }
 
 .action-message {
-    margin-top: 8px;
+    margin-top: 10px;
     font-size: 13px;
-    color: #888;
+    color: #80868b;
     text-align: center;
     min-height: 20px;
 }
@@ -209,14 +266,14 @@ header h1 {
     width: 100%;
     max-height: 500px;
     object-fit: contain;
-    border-radius: 8px;
-    border: 1px solid #eee;
+    border-radius: 12px;
+    border: 1px solid #e8eaed;
 }
 
 .screenshot-time {
     text-align: center;
     font-size: 12px;
-    color: #888;
+    color: #80868b;
     margin-top: 8px;
 }
 
@@ -224,7 +281,7 @@ header h1 {
 .schedule-form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
 }
 
 .form-group {
@@ -235,16 +292,26 @@ header h1 {
 
 .form-group label {
     font-size: 14px;
-    color: #555;
+    color: #3c4043;
 }
 
 .form-group input[type="time"],
 .form-group input[type="number"] {
-    padding: 6px 12px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
+    padding: 8px 12px;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
     font-size: 14px;
+    font-family: inherit;
     width: 140px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.form-group input[type="time"]:focus,
+.form-group input[type="number"]:focus {
+    border-color: #1a73e8;
+    border-width: 2px;
+    padding: 7px 11px;
 }
 
 .checkbox-group {
@@ -256,24 +323,39 @@ header h1 {
 .checkbox-group label {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #3c4043;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #1a73e8;
     cursor: pointer;
 }
 
 /* History table */
 .history-controls {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
 .history-controls select {
-    padding: 4px 8px;
-    border: 1px solid #ddd;
-    border-radius: 6px;
+    padding: 6px 12px;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
     font-size: 13px;
+    font-family: inherit;
+    color: #3c4043;
+    outline: none;
+    cursor: pointer;
 }
 
 .table-wrap {
     overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid #e8eaed;
 }
 
 table {
@@ -283,43 +365,48 @@ table {
 }
 
 th, td {
-    padding: 8px 10px;
+    padding: 10px 12px;
     text-align: left;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid #f1f3f4;
 }
 
 th {
-    color: #888;
+    color: #5f6368;
     font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: #f8f9fa;
 }
 
 .tag {
     display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
     font-size: 12px;
+    font-weight: 500;
 }
 
 .tag-success {
-    background: #d4edda;
-    color: #28a745;
+    background: #e6f4ea;
+    color: #1e8e3e;
 }
 
 .tag-fail {
-    background: #f8d7da;
-    color: #dc3545;
+    background: #fce8e6;
+    color: #d93025;
 }
 
 /* Log area */
 .log-area {
     height: 200px;
     overflow-y: auto;
-    background: #1e1e1e;
-    color: #d4d4d4;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
+    background: #202124;
+    color: #e8eaed;
+    font-family: 'Roboto Mono', 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 12px;
-    padding: 10px;
-    border-radius: 8px;
+    padding: 12px;
+    border-radius: 12px;
     line-height: 1.8;
 }
 
@@ -328,17 +415,33 @@ th {
 }
 
 .log-area .log-time {
-    color: #6a9955;
+    color: #81c995;
 }
 
 .log-area .log-info {
-    color: #569cd6;
+    color: #8ab4f8;
 }
 
 .log-area .log-error {
-    color: #f44747;
+    color: #f28b82;
 }
 
 .log-area .log-success {
-    color: #4ec9b0;
+    color: #81c995;
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+    .container { padding: 8px; }
+    .card { padding: 16px; border-radius: 12px; }
+    header { padding: 12px 14px; border-radius: 12px; }
+    header h1 { font-size: 16px; }
+    .device-info { grid-template-columns: 1fr; }
+    .actions { flex-direction: column; }
+    .btn { padding: 14px 16px; }
+    .form-group { flex-direction: column; align-items: stretch; gap: 6px; }
+    .form-group input[type="time"],
+    .form-group input[type="number"] { width: 100%; }
+    .table-wrap { font-size: 12px; }
+    th, td { padding: 8px; }
 }
