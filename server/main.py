@@ -15,10 +15,17 @@ from database import init_db
 from api import router
 from auth import check_session
 
+LOG_DIR = Path(__file__).parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_DIR / "backend.log", encoding="utf-8"),
+    ],
 )
 logger = logging.getLogger("autocheckin")
 
