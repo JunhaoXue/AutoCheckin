@@ -1,8 +1,25 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # AutoCheckin Agent 启动脚本
-# 用法: bash start.sh
+# 用法:
+#   bash start.sh       # 默认 AWS 模式 (3.144.252.203)
+#   bash start.sh cn    # 中国模式 (118.31.222.96)
 
 cd "$(dirname "$0")"
+
+# 部署配置
+MODE="${1:-aws}"
+case "$MODE" in
+  cn)
+    SERVER_IP="118.31.222.96"
+    SERVER_PORT="8088"
+    echo "=== 中国模式 ($SERVER_IP:$SERVER_PORT) ==="
+    ;;
+  *)
+    SERVER_IP="3.144.252.203"
+    SERVER_PORT="8088"
+    echo "=== AWS 模式 ($SERVER_IP:$SERVER_PORT) ==="
+    ;;
+esac
 
 # 获取 wakelock 防止息屏后被杀
 termux-wake-lock
@@ -19,6 +36,10 @@ mkdir -p logs
 # 拉取最新代码
 git pull
 
+# 更新服务器地址
+sed -i "s|server_ws_url:.*|server_ws_url: \"ws://${SERVER_IP}:${SERVER_PORT}/ws/phone\"|" config.yaml
+echo "server_ws_url: ws://${SERVER_IP}:${SERVER_PORT}/ws/phone"
+
 # 激活虚拟环境
 source venv/bin/activate
 
@@ -30,6 +51,6 @@ sleep 1
 nohup python main.py >> logs/agent.log 2>&1 &
 
 echo ""
-echo "Agent 已启动 (PID: $!)"
+echo "Agent 已启动 (PID: $!, ${MODE}模式)"
 echo "查看日志: tail -f logs/agent.log"
 echo "停止脚本: pkill -f 'python main.py'"
