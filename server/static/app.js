@@ -64,6 +64,10 @@ function handleWSMessage(msg) {
             break;
         case 'screenshot_update':
             showScreenshot(msg.data.screenshot_path);
+            updateRemoteScreen(msg.data.screenshot_path);
+            break;
+        case 'remote_screenshot':
+            updateRemoteScreen(msg.data.screenshot_path);
             break;
         case 'error_update':
             addLog(`错误: ${msg.data.error_code} - ${msg.data.message}`, 'error');
@@ -204,6 +208,23 @@ async function requestScreenshot() {
     }
 }
 
+async function wakeScreen() {
+    showActionMsg('正在发送唤醒短信...');
+    try {
+        const res = await fetch('/api/sms/wake', {method: 'POST'});
+        if (!checkAuth(res)) return;
+        const data = await res.json();
+        if (res.ok) {
+            showActionMsg('唤醒短信已发送');
+            addLog('发送唤醒短信', 'info');
+        } else {
+            showActionMsg(data.error || '发送失败');
+        }
+    } catch (e) {
+        showActionMsg('网络错误');
+    }
+}
+
 async function saveSchedule() {
     const config = {
         morning_time: document.getElementById('cfg-morning').value,
@@ -325,6 +346,206 @@ async function loadLogs() {
     }
 }
 
+// --- Remote Control ---
+let remotePhoneWidth = 1080;  // default, updated from screenshot
+let remotePhoneHeight = 2400;
+let remoteBusy = false;
+let dragStart = null;
+
+function setRemoteStatus(text) {
+    const el = document.getElementById('remote-status');
+    if (el) el.textContent = text;
+}
+
+function showTapIndicator(clientX, clientY) {
+    const wrap = document.getElementById('remote-screen-wrap');
+    const rect = wrap.getBoundingClientRect();
+    const ind = document.getElementById('remote-tap-indicator');
+    ind.style.left = (clientX - rect.left) + 'px';
+    ind.style.top = (clientY - rect.top) + 'px';
+    ind.style.display = 'block';
+    // Reset animation
+    ind.style.animation = 'none';
+    ind.offsetHeight; // trigger reflow
+    ind.style.animation = 'tap-ripple 0.4s ease-out forwards';
+    setTimeout(() => { ind.style.display = 'none'; }, 400);
+}
+
+function getPhoneCoords(clientX, clientY) {
+    const img = document.getElementById('remote-screen');
+    const rect = img.getBoundingClientRect();
+    const scaleX = remotePhoneWidth / rect.width;
+    const scaleY = remotePhoneHeight / rect.height;
+    return {
+        x: Math.round((clientX - rect.left) * scaleX),
+        y: Math.round((clientY - rect.top) * scaleY),
+    };
+}
+
+async function remoteRefresh() {
+    if (remoteBusy) return;
+    remoteBusy = true;
+    setRemoteStatus('正在获取屏幕...');
+    document.getElementById('remote-screen-wrap').classList.add('loading');
+    try {
+        const res = await fetch('/api/screenshot', {method: 'POST'});
+        if (!checkAuth(res)) return;
+        if (!res.ok) {
+            const data = await res.json();
+            setRemoteStatus(data.error || '获取失败');
+        }
+        // Screenshot will come via WebSocket
+    } catch (e) {
+        setRemoteStatus('网络错误');
+    }
+    // remoteBusy will be cleared when screenshot arrives
+    setTimeout(() => { remoteBusy = false; }, 5000); // safety timeout
+}
+
+async function remoteTap(x, y) {
+    if (remoteBusy) return;
+    remoteBusy = true;
+    setRemoteStatus(`点击 (${x}, ${y})...`);
+    document.getElementById('remote-screen-wrap').classList.add('loading');
+    try {
+        const res = await fetch('/api/remote/tap', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({x, y})
+        });
+        if (!checkAuth(res)) return;
+        if (!res.ok) {
+            const data = await res.json();
+            setRemoteStatus(data.error || '操作失败');
+            remoteBusy = false;
+        }
+    } catch (e) {
+        setRemoteStatus('网络错误');
+        remoteBusy = false;
+    }
+}
+
+async function remoteSwipe(x1, y1, x2, y2, duration) {
+    if (remoteBusy) return;
+    remoteBusy = true;
+    setRemoteStatus(`滑动中...`);
+    document.getElementById('remote-screen-wrap').classList.add('loading');
+    try {
+        const res = await fetch('/api/remote/swipe', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({x1, y1, x2, y2, duration})
+        });
+        if (!checkAuth(res)) return;
+        if (!res.ok) {
+            const data = await res.json();
+            setRemoteStatus(data.error || '操作失败');
+            remoteBusy = false;
+        }
+    } catch (e) {
+        setRemoteStatus('网络错误');
+        remoteBusy = false;
+    }
+}
+
+async function remoteKey(key) {
+    if (remoteBusy) return;
+    remoteBusy = true;
+    const names = {'3': '主页', '4': '返回', '187': '多任务'};
+    setRemoteStatus(`按键: ${names[key] || key}...`);
+    document.getElementById('remote-screen-wrap').classList.add('loading');
+    try {
+        const res = await fetch('/api/remote/keyevent', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({key})
+        });
+        if (!checkAuth(res)) return;
+        if (!res.ok) {
+            const data = await res.json();
+            setRemoteStatus(data.error || '操作失败');
+            remoteBusy = false;
+        }
+    } catch (e) {
+        setRemoteStatus('网络错误');
+        remoteBusy = false;
+    }
+}
+
+function updateRemoteScreen(path) {
+    const img = document.getElementById('remote-screen');
+    const wrap = document.getElementById('remote-screen-wrap');
+    img.src = path + '?t=' + Date.now();
+    img.onload = () => {
+        // Update phone resolution from actual image size
+        remotePhoneWidth = img.naturalWidth;
+        remotePhoneHeight = img.naturalHeight;
+        wrap.classList.remove('loading');
+        setRemoteStatus('');
+        remoteBusy = false;
+    };
+    img.onerror = () => {
+        wrap.classList.remove('loading');
+        setRemoteStatus('图片加载失败');
+        remoteBusy = false;
+    };
+}
+
+function initRemoteControl() {
+    const wrap = document.getElementById('remote-screen-wrap');
+    if (!wrap) return;
+
+    // Mouse events
+    wrap.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const coords = getPhoneCoords(e.clientX, e.clientY);
+        dragStart = {x: e.clientX, y: e.clientY, px: coords.x, py: coords.y};
+    });
+
+    wrap.addEventListener('mouseup', (e) => {
+        if (!dragStart) return;
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 10) {
+            // Tap
+            showTapIndicator(e.clientX, e.clientY);
+            remoteTap(dragStart.px, dragStart.py);
+        } else {
+            // Swipe
+            const end = getPhoneCoords(e.clientX, e.clientY);
+            remoteSwipe(dragStart.px, dragStart.py, end.x, end.y, 300);
+        }
+        dragStart = null;
+    });
+
+    // Touch events
+    wrap.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        const coords = getPhoneCoords(t.clientX, t.clientY);
+        dragStart = {x: t.clientX, y: t.clientY, px: coords.x, py: coords.y};
+    }, {passive: false});
+
+    wrap.addEventListener('touchend', (e) => {
+        if (!dragStart) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - dragStart.x;
+        const dy = t.clientY - dragStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 10) {
+            showTapIndicator(t.clientX, t.clientY);
+            remoteTap(dragStart.px, dragStart.py);
+        } else {
+            const end = getPhoneCoords(t.clientX, t.clientY);
+            remoteSwipe(dragStart.px, dragStart.py, end.x, end.y, 300);
+        }
+        dragStart = null;
+    }, {passive: false});
+}
+
 async function logout() {
     await fetch('/api/auth/logout', {method: 'POST'});
     window.location.href = '/login';
@@ -336,4 +557,5 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSchedule();
     loadHistory();
     loadLogs();
+    initRemoteControl();
 });

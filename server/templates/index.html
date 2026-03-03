@@ -78,6 +78,9 @@
                 <button id="btn-screenshot" class="btn btn-secondary" onclick="requestScreenshot()">
                     截图
                 </button>
+                <button id="btn-wake" class="btn btn-secondary" onclick="wakeScreen()">
+                    唤醒屏幕
+                </button>
             </div>
             <div id="action-msg" class="action-message"></div>
         </div>
@@ -87,6 +90,25 @@
             <h2>最新截图</h2>
             <img id="screenshot-img" class="screenshot" src="" alt="截图">
             <div id="screenshot-time" class="screenshot-time"></div>
+        </div>
+
+        <!-- Remote Control -->
+        <div class="card">
+            <h2>远程控制</h2>
+            <div class="remote-control">
+                <div class="remote-toolbar">
+                    <button class="btn btn-secondary" onclick="remoteRefresh()">刷新屏幕</button>
+                    <button class="btn btn-secondary" onclick="remoteKey('4')">返回</button>
+                    <button class="btn btn-secondary" onclick="remoteKey('3')">主页</button>
+                    <button class="btn btn-secondary" onclick="remoteKey('187')">多任务</button>
+                </div>
+                <div id="remote-status" class="remote-status"></div>
+                <div id="remote-screen-wrap" class="remote-screen-wrap">
+                    <img id="remote-screen" class="remote-screen" src="" alt="点击刷新屏幕查看手机画面"
+                         draggable="false">
+                    <div id="remote-tap-indicator" class="remote-tap-indicator"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Schedule Config -->
