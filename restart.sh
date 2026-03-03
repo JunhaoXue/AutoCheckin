@@ -25,6 +25,16 @@ esac
 echo "=== 拉取最新代码 ==="
 git pull origin main
 
+echo "=== 安装服务端依赖 ==="
+cd server
+if [ ! -d "venv" ]; then
+    echo "  创建虚拟环境..."
+    python3 -m venv venv
+fi
+source venv/bin/activate
+pip install -r requirements.txt -q
+cd ..
+
 echo "=== 更新 Agent 配置 ==="
 sed -i "s|server_ws_url:.*|server_ws_url: \"ws://${SERVER_IP}:${SERVER_PORT}/ws/phone\"|" agent/config.yaml
 echo "  server_ws_url: ws://${SERVER_IP}:${SERVER_PORT}/ws/phone"
