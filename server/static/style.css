@@ -430,6 +430,81 @@ th {
     color: #81c995;
 }
 
+/* Remote Control */
+.remote-control {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.remote-toolbar {
+    display: flex;
+    gap: 8px;
+}
+
+.remote-toolbar .btn {
+    flex: 1;
+    padding: 8px 4px;
+    font-size: 13px;
+}
+
+.remote-status {
+    font-size: 13px;
+    color: #80868b;
+    text-align: center;
+    min-height: 18px;
+}
+
+.remote-screen-wrap {
+    position: relative;
+    background: #202124;
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: crosshair;
+    touch-action: none;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remote-placeholder {
+    color: #9aa0a6;
+    font-size: 14px;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.remote-screen {
+    width: 100%;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+}
+
+.remote-screen-wrap.loading {
+    opacity: 0.6;
+}
+
+.remote-tap-indicator {
+    display: none;
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(26, 115, 232, 0.5);
+    border: 2px solid rgba(26, 115, 232, 0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    animation: tap-ripple 0.4s ease-out forwards;
+}
+
+@keyframes tap-ripple {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
+}
+
 /* Mobile responsive */
 @media (max-width: 480px) {
     .container { padding: 8px; }

@@ -270,6 +270,51 @@ async def update_schedule(request: Request):
     return {"message": "配置已更新"}
 
 
+# --- Remote control API ---
+
+@router.post("/api/remote/tap")
+async def remote_tap(request: Request):
+    """Send tap command to phone."""
+    err = auth_or_401(request)
+    if err:
+        return err
+    if not manager.phone_online:
+        return JSONResponse(status_code=503, content={"error": "手机未连接"})
+    body = await request.json()
+    msg_id = await manager.send_to_phone("tap", {"x": body["x"], "y": body["y"]})
+    return {"msg_id": msg_id}
+
+
+@router.post("/api/remote/swipe")
+async def remote_swipe(request: Request):
+    """Send swipe command to phone."""
+    err = auth_or_401(request)
+    if err:
+        return err
+    if not manager.phone_online:
+        return JSONResponse(status_code=503, content={"error": "手机未连接"})
+    body = await request.json()
+    msg_id = await manager.send_to_phone("swipe", {
+        "x1": body["x1"], "y1": body["y1"],
+        "x2": body["x2"], "y2": body["y2"],
+        "duration": body.get("duration", 300),
+    })
+    return {"msg_id": msg_id}
+
+
+@router.post("/api/remote/keyevent")
+async def remote_keyevent(request: Request):
+    """Send keyevent command to phone."""
+    err = auth_or_401(request)
+    if err:
+        return err
+    if not manager.phone_online:
+        return JSONResponse(status_code=503, content={"error": "手机未连接"})
+    body = await request.json()
+    msg_id = await manager.send_to_phone("keyevent", {"key": body["key"]})
+    return {"msg_id": msg_id}
+
+
 # --- WebSocket endpoints ---
 
 @router.websocket("/ws/phone")

@@ -249,6 +249,8 @@ class Agent:
             await self._cmd_status(msg_id)
         elif cmd_type == "update_schedule":
             await self._cmd_update_schedule(data, msg_id)
+        elif cmd_type in ("tap", "swipe", "keyevent"):
+            await self._cmd_remote(cmd_type, data, msg_id)
         else:
             logger.warning(f"Unknown command: {cmd_type}")
 
@@ -294,6 +296,54 @@ class Agent:
         save_config(self.config)
         self._setup_schedule()
         logger.info(f"Schedule updated: {data}")
+
+    # --- Remote control ---
+
+    async def _cmd_remote(self, cmd_type: str, data: dict, msg_id: str):
+        """Handle remote control commands: tap, swipe, keyevent."""
+        import subprocess
+
+        def _execute():
+            try:
+                if cmd_type == "tap":
+                    x, y = int(data["x"]), int(data["y"])
+                    logger.info(f"Remote tap ({x}, {y})")
+                    subprocess.run(
+                        ["adb", "shell", "input", "tap", str(x), str(y)],
+                        capture_output=True, timeout=5
+                    )
+                elif cmd_type == "swipe":
+                    x1, y1 = int(data["x1"]), int(data["y1"])
+                    x2, y2 = int(data["x2"]), int(data["y2"])
+                    dur = int(data.get("duration", 300))
+                    logger.info(f"Remote swipe ({x1},{y1})->({x2},{y2}) {dur}ms")
+                    subprocess.run(
+                        ["adb", "shell", "input", "swipe",
+                         str(x1), str(y1), str(x2), str(y2), str(dur)],
+                        capture_output=True, timeout=5
+                    )
+                elif cmd_type == "keyevent":
+                    key = str(data["key"])
+                    logger.info(f"Remote keyevent {key}")
+                    subprocess.run(
+                        ["adb", "shell", "input", "keyevent", key],
+                        capture_output=True, timeout=5
+                    )
+            except Exception as e:
+                logger.error(f"Remote {cmd_type} failed: {e}")
+
+            # Take screenshot after action
+            import time
+            time.sleep(0.3)
+            return self.dm.take_screenshot_b64()
+
+        b64 = await asyncio.get_event_loop().run_in_executor(None, _execute)
+        if b64:
+            await self.ws.send({
+                "type": "remote_result",
+                "msg_id": msg_id,
+                "data": {"screenshot_b64": b64},
+            })
 
     # --- Heartbeat ---
 

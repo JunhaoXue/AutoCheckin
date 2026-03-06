@@ -475,11 +475,13 @@ async function remoteKey(key) {
 function updateRemoteScreen(path) {
     const img = document.getElementById('remote-screen');
     const wrap = document.getElementById('remote-screen-wrap');
+    const placeholder = document.getElementById('remote-placeholder');
     img.src = path + '?t=' + Date.now();
     img.onload = () => {
-        // Update phone resolution from actual image size
         remotePhoneWidth = img.naturalWidth;
         remotePhoneHeight = img.naturalHeight;
+        img.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
         wrap.classList.remove('loading');
         setRemoteStatus('');
         remoteBusy = false;

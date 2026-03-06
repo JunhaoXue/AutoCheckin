@@ -123,6 +123,8 @@ class WSManager:
             await self._handle_error(msg)
         elif msg_type == "log":
             await self._handle_log(msg)
+        elif msg_type == "remote_result":
+            await self._handle_remote_result(msg)
         elif msg_type == "request_checkin":
             await self._handle_request_checkin(data)
         else:
@@ -253,6 +255,16 @@ class WSManager:
             "type": "log_update",
             "data": {**data, "ts": ts}
         })
+
+    async def _handle_remote_result(self, msg: dict):
+        """Handle screenshot result from remote control action."""
+        data = msg.get("data", {})
+        if data.get("screenshot_b64"):
+            path = await self._save_screenshot(data["screenshot_b64"], "remote")
+            await self._broadcast_to_browsers({
+                "type": "remote_screenshot",
+                "data": {"screenshot_path": path}
+            })
 
     async def _handle_request_checkin(self, data: dict):
         """Phone agent requests a checkin — send SMS first, then checkin command."""
